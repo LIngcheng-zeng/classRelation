@@ -4,6 +4,7 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import org.example.analyzer.LocalAliasResolver;
 
@@ -34,19 +35,29 @@ public class EqualsCallVisitor {
                 super.visit(n, aliasMap);
 
                 if (!"equals".equals(n.getNameAsString())) return;
-                if (n.getArguments().size() != 1) return;
-                if (n.getScope().isEmpty()) return;
 
+                Map<String, Expression> map = aliasMap != null ? aliasMap : Collections.emptyMap();
                 String location = fileName + ":"
                         + n.getBegin().map(p -> String.valueOf(p.line)).orElse("?");
 
-                sites.add(new EqualCallSite(
-                        n.getScope().get(),
-                        n.getArgument(0),
-                        n,
-                        location,
-                        aliasMap != null ? aliasMap : Collections.emptyMap()
-                ));
+                if (n.getArguments().size() == 1 && n.getScope().isPresent()) {
+                    // Pattern: caller.equals(arg)
+                    sites.add(new EqualCallSite(
+                            n.getScope().get(), n.getArgument(0), n, location, map));
+
+                } else if (n.getArguments().size() == 2 && isObjectsScope(n)) {
+                    // Pattern: Objects.equals(a, b)
+                    sites.add(new EqualCallSite(
+                            n.getArgument(0), n.getArgument(1), n, location, map));
+                }
+            }
+
+            private boolean isObjectsScope(MethodCallExpr n) {
+                return n.getScope()
+                        .filter(s -> s instanceof NameExpr ne
+                                && ("Objects".equals(ne.getNameAsString())
+                                    || "java.util.Objects".equals(ne.getNameAsString())))
+                        .isPresent();
             }
         }.visit(cu, Collections.emptyMap());
 

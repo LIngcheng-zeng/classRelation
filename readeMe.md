@@ -35,7 +35,11 @@
     * *逻辑*：$B.f_1 = \text{compute}(A.f_1, A.f_2)$（COMPOSITE / PARAMETERIZED WRITE）
     * *代码示例*：`b.fullName = a.firstName + " " + a.lastName`
 
-> **采集规则**：仅采集 LHS 为字段访问表达式（`obj.field`）的简单赋值（`=`）。裸变量名 LHS（局部变量）及复合赋值（`+=` 等）不采集。
+> **探测型采集规则**：支持两种形式：
+> - `caller.equals(arg)` — 实例方法调用形式
+> - `Objects.equals(a, b)` — `java.util.Objects` 静态两参数形式，`arg[0]` 为来源侧，`arg[1]` 为目标侧
+>
+> **动作型采集规则**：仅采集 LHS 为字段访问表达式（`obj.field`）的简单赋值（`=`）。裸变量名 LHS（局部变量）及复合赋值（`+=` 等）不采集。
 
 ---
 
@@ -149,3 +153,46 @@
   }
 }
 ```
+
+---
+
+## 8. 已知实现差距 (Known Implementation Gaps)
+
+以下差距已识别，协议定义超前于当前实现，暂不修复，记录于此供后续迭代参考。
+
+### GAP-01 · 变量上下文分类错误
+
+**协议要求**：含裸变量（`className = null` 的 `FieldRef`）的表达式应分类为 `PARAMETERIZED`。
+
+**当前行为**：`RelationshipClassifier` 仅依据算子（`transform` / `concat` / `format`）分类，不检查 `className` 是否为 `null`。
+
+**影响示例**：
+```java
+order.tenantId.equals(currentTenantId)
+// 期望：PARAMETERIZED（变量参与）
+// 实际：ATOMIC（误判）
+```
+
+---
+
+### GAP-02 · 别名展开后算子检测失效
+
+**协议要求**：算子描述应反映实际数据转换语义（展开后）。
+
+**当前行为**：`detectOperator` 在别名展开**之前**对原始表达式运行，无法感知别名背后的组合结构。
+
+**影响示例**：
+```java
+String id = user.firstName + user.lastName;
+order.userId = id;
+// id 展开后为 concat 结构，期望：COMPOSITE
+// 实际：detectOperator(NameExpr "id") → "direct" → ATOMIC（误判）
+```
+
+---
+
+### GAP-03 · 归一化属性未采集
+
+**协议要求**：要素完备表第 3 项"归一化（Normalization）"——抹平物理差异的预处理规则（如 `.toLowerCase()`、`.trim()`、类型转换）应被识别并记录为独立属性。
+
+**当前行为**：`.toLowerCase().equals(...)` 被当作 `transform` 链归类为 `PARAMETERIZED`，但归一化类型（`IGNORE_CASE`、`TRIM` 等）既未提取也未存储。`FieldMapping` 无 `normalization` 字段，JSON Schema 中的 `pre_process` 无对应实现。
