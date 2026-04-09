@@ -40,13 +40,16 @@ scan → parse → visit → extract → classify → aggregate → expand → r
   * *示例*：`a.orderId.equals(b.refOrderId)` → `FieldRef(A, orderId) ≡ FieldRef(B, refOrderId)`
 
 * **投影组合关联 (Composite Projection)**：
-  * *公式*：$\text{op}(A.f_1, A.f_2, \ldots) \equiv B.f_3$
-  * *示例*：`(a.areaCode + a.phone).equals(b.fullMobile)` → 两个 FieldRef 在左侧，operator=`direct`（EnclosedExpr），字段数 > 1 触发 COMPOSITE
+  * *公式*：$\text{op}(A.f_1, A.f_2, \ldots) \equiv B.f_3$，或双侧均为组合：$\text{op}(A.f_1, A.f_2) \equiv \text{op}(B.f_1, B.f_2)$
+  * *触发条件*：**任一侧** `fields.size() > 1`，或算子为 `concat` / `format`
+  * *示例 1*：`(a.areaCode + a.phone).equals(b.fullMobile)` → 左侧两字段，operator=`direct`（EnclosedExpr），字段数 > 1 触发 COMPOSITE
+  * *示例 2*：`(a.firstName + a.lastName).equals(b.givenName + b.familyName)` → 双侧均为组合，任一侧满足字段数 > 1
 
 * **变换链关联 (Transform Chain)**：
-  * *公式*：$\text{chain}(A.f_1) \equiv B.f_1$
-  * *条件*：表达式为 MethodCallExpr，且其 scope 也是 MethodCallExpr（即链式调用）
-  * *示例*：`a.getCode().transform().equals(b.value)` → operator=`transform` → PARAMETERIZED
+  * *公式*：$\text{chain}(A.f_1) \equiv B.f_1$，或双侧均为变换链：$\text{chain}(A.f_1) \equiv \text{chain}(B.f_1)$
+  * *触发条件*：**任一侧**表达式为 MethodCallExpr，且其 scope 也是 MethodCallExpr（即链式调用）
+  * *示例 1*：`a.getCode().transform().equals(b.value)` → 左侧为链，operator=`transform` → PARAMETERIZED
+  * *示例 2*：`a.getCode().normalize().equals(b.getValue().trim())` → 双侧均为变换链，任一侧满足即触发 PARAMETERIZED
 
 ---
 
@@ -212,6 +215,38 @@ scan → parse → visit → extract → classify → aggregate → expand → r
   "traceability": {
     "raw_expression": "(user.areaCode + user.phone).equals(account.fullMobile)",
     "location": "UserService.java:112"
+  }
+}
+```
+
+### 双侧变换链（READ，PARAMETERIZED）
+```json
+{
+  "association_id": "MAPPING_004",
+  "type": "PARAMETERIZED",
+  "mode": "READ_PREDICATE",
+  "left": { "class": "Order", "fields": ["code"], "operator": "transform" },
+  "right": { "class": "Invoice", "fields": ["refCode"], "operator": "transform" },
+  "note": "Both sides are transform chains; PARAMETERIZED triggered by either side having operator=transform",
+  "traceability": {
+    "raw_expression": "order.getCode().normalize().equals(invoice.getValue().trim())",
+    "location": "OrderService.java:75"
+  }
+}
+```
+
+### 双侧投影组合（READ，COMPOSITE）
+```json
+{
+  "association_id": "MAPPING_004",
+  "type": "COMPOSITE",
+  "mode": "READ_PREDICATE",
+  "left": { "class": "Person", "fields": ["firstName", "lastName"], "operator": "direct" },
+  "right": { "class": "Employee", "fields": ["givenName", "familyName"], "operator": "direct" },
+  "note": "Both sides are composite; COMPOSITE triggered by fields.size()>1 on either side",
+  "traceability": {
+    "raw_expression": "(person.firstName + person.lastName).equals(emp.givenName + emp.familyName)",
+    "location": "HRService.java:88"
   }
 }
 ```
