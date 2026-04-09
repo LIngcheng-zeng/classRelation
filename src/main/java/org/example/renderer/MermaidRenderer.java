@@ -33,8 +33,12 @@ public class MermaidRenderer {
 
             for (FieldMapping m : rel.mappings()) {
                 String label = buildLabel(m);
-                // READ_PREDICATE: solid arrow -->  WRITE_ASSIGNMENT: dashed arrow -.->
-                String arrow = m.mode() == MappingMode.WRITE_ASSIGNMENT ? "-.->" : "-->";
+                // READ_PREDICATE: solid -->  WRITE_ASSIGNMENT: dashed -.->  TRANSITIVE: ==>=
+                String arrow = switch (m.mode()) {
+                    case WRITE_ASSIGNMENT   -> "-.->";
+                    case TRANSITIVE_CLOSURE -> "==>";
+                    default                -> "-->";
+                };
                 String edge = "    " + src + " " + arrow + "|\"" + label + "\"| " + tgt;
                 drawnEdges.add(edge);
             }

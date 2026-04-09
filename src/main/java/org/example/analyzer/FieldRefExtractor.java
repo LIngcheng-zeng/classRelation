@@ -137,11 +137,49 @@ public class FieldRefExtractor {
     }
 
     private void handleMethodCall(MethodCallExpr mc, List<FieldRef> refs, Map<String, Expression> aliasMap) {
+        // Getter pattern: obj.getXxx() → FieldRef(className_of_obj, "xxx")
+        if (isGetter(mc)) {
+            String raw       = mc.getNameAsString();
+            String fieldName = Character.toLowerCase(raw.charAt(3)) + raw.substring(4);
+            String className = mc.getScope()
+                    .map(this::resolveClassNameFromScope)
+                    .orElse(null);
+            refs.add(new FieldRef(className, fieldName));
+            return;
+        }
         // Recurse into scope and arguments to find field refs within the chain
         mc.getScope().ifPresent(scope -> collectFieldRefs(scope, refs, aliasMap));
         for (Expression arg : mc.getArguments()) {
             collectFieldRefs(arg, refs, aliasMap);
         }
+    }
+
+    private boolean isGetter(MethodCallExpr mc) {
+        String name = mc.getNameAsString();
+        return name.startsWith("get")
+                && name.length() > 3
+                && Character.isUpperCase(name.charAt(3))
+                && mc.getArguments().isEmpty()
+                && mc.getScope().isPresent();
+    }
+
+    /** Public entry point for resolving a className from an arbitrary scope expression. */
+    public String resolveClassNamePublic(Expression scope) {
+        return resolveClassNameFromScope(scope);
+    }
+
+    private String resolveClassNameFromScope(Expression scope) {
+        // Try SymbolSolver first
+        try {
+            var resolvedType = scope.calculateResolvedType();
+            if (resolvedType.isReferenceType()) {
+                String qualified = resolvedType.asReferenceType().getQualifiedName();
+                int dot = qualified.lastIndexOf('.');
+                return dot >= 0 ? qualified.substring(dot + 1) : qualified;
+            }
+        } catch (Exception ignored) {}
+        // Fallback: use scope text heuristic
+        return extractScopeName(scope);
     }
 
     // -------------------------------------------------------------------------

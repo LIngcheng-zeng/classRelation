@@ -22,55 +22,88 @@ public class MarkdownDocumentRenderer {
         sb.append("# ").append(projectName).append(" — 字段关联分析报告\n\n");
 
         // Summary
-        long readCount  = relations.stream().flatMap(r -> r.mappings().stream())
+        long readCount       = relations.stream().flatMap(r -> r.mappings().stream())
                 .filter(m -> m.mode() == MappingMode.READ_PREDICATE).count();
-        long writeCount = relations.stream().flatMap(r -> r.mappings().stream())
+        long writeCount      = relations.stream().flatMap(r -> r.mappings().stream())
                 .filter(m -> m.mode() == MappingMode.WRITE_ASSIGNMENT).count();
+        long transitiveCount = relations.stream().flatMap(r -> r.mappings().stream())
+                .filter(m -> m.mode() == MappingMode.TRANSITIVE_CLOSURE).count();
+        long directRelCount  = relations.stream()
+                .filter(r -> r.mappings().stream().anyMatch(m -> m.mode() != MappingMode.TRANSITIVE_CLOSURE))
+                .count();
         sb.append("## 摘要\n\n");
         sb.append("| 项目 | 数值 |\n");
         sb.append("|---|---|\n");
-        sb.append("| 涉及类关系对 | ").append(relations.size()).append(" |\n");
+        sb.append("| 涉及类关系对（直接） | ").append(directRelCount).append(" |\n");
         sb.append("| 探测型关联（READ） | ").append(readCount).append(" |\n");
-        sb.append("| 动作型关联（WRITE） | ").append(writeCount).append(" |\n\n");
+        sb.append("| 动作型关联（WRITE） | ").append(writeCount).append(" |\n");
+        sb.append("| 推导关联（传递闭包） | ").append(transitiveCount).append(" |\n\n");
 
         // Mermaid diagram
         sb.append("## 关联图谱\n\n");
         sb.append(mermaidRenderer.render(relations)).append("\n\n");
         sb.append("> 实线箭头 `-->` 为探测型（READ），虚线箭头 `-.->` 为动作型（WRITE）。\n\n");
 
-        // Field lineage table — grouped by target class
-        sb.append("## 字段血缘明细\n\n");
-
-        // Collect mappings grouped by target class name
-        Map<String, List<FieldMapping>> byTarget = new LinkedHashMap<>();
+        // Split relations into direct vs transitive
+        List<ClassRelation> direct     = new java.util.ArrayList<>();
+        List<ClassRelation> transitive = new java.util.ArrayList<>();
         for (ClassRelation rel : relations) {
-            byTarget.computeIfAbsent(rel.targetClass(), k -> new java.util.ArrayList<>())
-                    .addAll(rel.mappings());
+            boolean isDerived = rel.mappings().stream()
+                    .allMatch(m -> m.mode() == MappingMode.TRANSITIVE_CLOSURE);
+            (isDerived ? transitive : direct).add(rel);
         }
 
-        for (Map.Entry<String, List<FieldMapping>> entry : byTarget.entrySet()) {
-            sb.append("### ").append(entry.getKey()).append("\n\n");
-            sb.append("| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 |\n");
-            sb.append("|---|---|---|---|---|\n");
+        // --- Direct lineage grouped by target class ---
+        sb.append("## 字段血缘明细\n\n");
+        renderGroupedTable(sb, direct, false);
 
-            for (FieldMapping m : entry.getValue()) {
-                String sink    = formatSide(m.rightSide());
-                String source  = formatSide(m.leftSide());
-                String type    = m.type().name();
-                String mode    = m.mode() == MappingMode.WRITE_ASSIGNMENT ? "WRITE" : "READ";
-                String loc     = m.location();
-                String rawExpr = escape(m.rawExpression());
-                sb.append("| ").append(sink)
-                  .append(" | ").append(source)
-                  .append(" | ").append(type)
-                  .append(" | ").append(mode)
-                  .append(" | `").append(loc).append("` |\n");
-                sb.append("| | *").append(rawExpr).append("* | | | |\n");
-            }
-            sb.append("\n");
+        // --- Derived (transitive) lineage ---
+        if (!transitive.isEmpty()) {
+            sb.append("## 推导关联（传递性闭包）\n\n");
+            sb.append("> 以下关联由工具自动推导，非源码直接体现。\n\n");
+            renderGroupedTable(sb, transitive, true);
         }
 
         return sb.toString();
+    }
+
+    private void renderGroupedTable(StringBuilder sb, List<ClassRelation> rels, boolean derived) {
+        Map<String, List<FieldMapping>> byTarget = new LinkedHashMap<>();
+        for (ClassRelation rel : rels) {
+            byTarget.computeIfAbsent(rel.targetClass(), k -> new java.util.ArrayList<>())
+                    .addAll(rel.mappings());
+        }
+        for (Map.Entry<String, List<FieldMapping>> entry : byTarget.entrySet()) {
+            sb.append("### ").append(entry.getKey()).append("\n\n");
+            if (derived) {
+                sb.append("| 目标表字段 | 源表字段集合 | 推导路径 |\n");
+                sb.append("|---|---|---|\n");
+            } else {
+                sb.append("| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 |\n");
+                sb.append("|---|---|---|---|---|\n");
+            }
+            for (FieldMapping m : entry.getValue()) {
+                String sink    = formatSide(m.rightSide());
+                String source  = formatSide(m.leftSide());
+                String rawExpr = escape(m.rawExpression());
+                if (derived) {
+                    sb.append("| ").append(sink)
+                      .append(" | ").append(source)
+                      .append(" | *").append(rawExpr).append("* |\n");
+                } else {
+                    String type = m.type().name();
+                    String mode = m.mode() == MappingMode.WRITE_ASSIGNMENT ? "WRITE" : "READ";
+                    String loc  = m.location();
+                    sb.append("| ").append(sink)
+                      .append(" | ").append(source)
+                      .append(" | ").append(type)
+                      .append(" | ").append(mode)
+                      .append(" | `").append(loc).append("` |\n");
+                    sb.append("| | *").append(rawExpr).append("* | | | |\n");
+                }
+            }
+            sb.append("\n");
+        }
     }
 
     private String formatSide(org.example.model.ExpressionSide side) {

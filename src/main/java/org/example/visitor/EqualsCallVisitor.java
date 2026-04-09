@@ -3,6 +3,7 @@ package org.example.visitor;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
@@ -43,9 +44,16 @@ public class EqualsCallVisitor {
         new VoidVisitorAdapter<Map<String, Expression>>() {
             @Override
             public void visit(MethodDeclaration n, Map<String, Expression> ignored) {
-                // Build alias map for this method, then visit its body
                 Map<String, Expression> aliasMap = LocalAliasResolver.resolve(n);
                 super.visit(n, aliasMap);
+            }
+
+            @Override
+            public void visit(LambdaExpr n, Map<String, Expression> aliasMap) {
+                // Isolate lambda scope: remove entries that shadow lambda parameters
+                Map<String, Expression> childMap = new HashMap<>(aliasMap != null ? aliasMap : Collections.emptyMap());
+                n.getParameters().forEach(p -> childMap.remove(p.getNameAsString()));
+                super.visit(n, childMap);
             }
 
             /**

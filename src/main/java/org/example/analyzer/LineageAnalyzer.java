@@ -8,16 +8,20 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSol
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
 import org.example.classifier.RelationshipClassifier;
+import org.example.expander.TransitiveClosureExpander;
 import org.example.graph.LineageGraph;
 import org.example.model.ClassRelation;
 import org.example.model.ExpressionSide;
 import org.example.model.FieldMapping;
+import org.example.model.FieldRef;
 import org.example.model.MappingMode;
 import org.example.model.MappingType;
 import org.example.visitor.AssignmentSite;
 import org.example.visitor.AssignmentVisitor;
 import org.example.visitor.EqualCallSite;
 import org.example.visitor.EqualsCallVisitor;
+import org.example.visitor.SetterCallSite;
+import org.example.visitor.SetterCallVisitor;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -32,11 +36,13 @@ public class LineageAnalyzer {
 
     private static final Logger log = Logger.getLogger(LineageAnalyzer.class.getName());
 
-    private final JavaFileScanner        scanner         = new JavaFileScanner();
-    private final EqualsCallVisitor      equalsVisitor   = new EqualsCallVisitor();
-    private final AssignmentVisitor      assignVisitor   = new AssignmentVisitor();
-    private final FieldRefExtractor      extractor       = new FieldRefExtractor();
-    private final RelationshipClassifier classifier      = new RelationshipClassifier();
+    private final JavaFileScanner          scanner         = new JavaFileScanner();
+    private final EqualsCallVisitor        equalsVisitor   = new EqualsCallVisitor();
+    private final AssignmentVisitor        assignVisitor   = new AssignmentVisitor();
+    private final SetterCallVisitor        setterVisitor   = new SetterCallVisitor();
+    private final FieldRefExtractor        extractor       = new FieldRefExtractor();
+    private final RelationshipClassifier   classifier      = new RelationshipClassifier();
+    private final TransitiveClosureExpander expander       = new TransitiveClosureExpander();
 
     /**
      * 执行完整的代码分析流程，扫描指定项目中的所有 Java 文件，提取类之间的字段血缘关系。
@@ -76,6 +82,11 @@ public class LineageAnalyzer {
                 for (AssignmentSite site : assignSites) {
                     processAssignmentSite(site, graph);
                 }
+
+                List<SetterCallSite> setterSites = setterVisitor.visit(cu, fileName);
+                for (SetterCallSite site : setterSites) {
+                    processSetterSite(site, graph);
+                }
             } catch (IOException e) {
                 log.warning("Failed to parse file: " + file + " — " + e.getMessage());
             } catch (Exception e) {
@@ -83,7 +94,8 @@ public class LineageAnalyzer {
             }
         }
 
-        return graph.buildRelations();
+        List<ClassRelation> relations = graph.buildRelations();
+        return expander.expand(relations);
     }
 
     /**
@@ -141,6 +153,20 @@ public class LineageAnalyzer {
         MappingType type = classifier.classify(sourceSide, sinkSide);
         String rawExpr = truncate(site.assignExpr().toString());
 
+        graph.addMapping(new FieldMapping(sourceSide, sinkSide, type, MappingMode.WRITE_ASSIGNMENT, rawExpr, site.location()));
+    }
+
+    private void processSetterSite(SetterCallSite site, LineageGraph graph) {
+        // Sink: the field written by the setter — derive className from receiver scope
+        ExpressionSide sourceSide = extractor.extract(site.value(), site.aliasMap());
+        String sinkClassName = extractor.resolveClassNamePublic(site.receiverScope());
+        ExpressionSide sinkSide = new ExpressionSide(
+                List.of(new FieldRef(sinkClassName, site.fieldName())), "direct");
+
+        if (!isValidPair(sourceSide, sinkSide)) return;
+
+        MappingType type   = classifier.classify(sourceSide, sinkSide);
+        String rawExpr     = truncate(site.call().toString());
         graph.addMapping(new FieldMapping(sourceSide, sinkSide, type, MappingMode.WRITE_ASSIGNMENT, rawExpr, site.location()));
     }
 
