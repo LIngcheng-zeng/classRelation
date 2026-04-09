@@ -4,7 +4,9 @@ import org.example.model.ClassRelation;
 import org.example.model.FieldMapping;
 import org.example.model.MappingMode;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Renders lineage analysis results as a single Markdown document.
@@ -36,13 +38,22 @@ public class MarkdownDocumentRenderer {
         sb.append(mermaidRenderer.render(relations)).append("\n\n");
         sb.append("> 实线箭头 `-->` 为探测型（READ），虚线箭头 `-.->` 为动作型（WRITE）。\n\n");
 
-        // Field lineage table
+        // Field lineage table — grouped by target class
         sb.append("## 字段血缘明细\n\n");
-        sb.append("| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 |\n");
-        sb.append("|---|---|---|---|---|\n");
 
+        // Collect mappings grouped by target class name
+        Map<String, List<FieldMapping>> byTarget = new LinkedHashMap<>();
         for (ClassRelation rel : relations) {
-            for (FieldMapping m : rel.mappings()) {
+            byTarget.computeIfAbsent(rel.targetClass(), k -> new java.util.ArrayList<>())
+                    .addAll(rel.mappings());
+        }
+
+        for (Map.Entry<String, List<FieldMapping>> entry : byTarget.entrySet()) {
+            sb.append("### ").append(entry.getKey()).append("\n\n");
+            sb.append("| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 |\n");
+            sb.append("|---|---|---|---|---|\n");
+
+            for (FieldMapping m : entry.getValue()) {
                 String sink    = formatSide(m.rightSide());
                 String source  = formatSide(m.leftSide());
                 String type    = m.type().name();
@@ -54,9 +65,9 @@ public class MarkdownDocumentRenderer {
                   .append(" | ").append(type)
                   .append(" | ").append(mode)
                   .append(" | `").append(loc).append("` |\n");
-                // Raw expression as sub-row detail
                 sb.append("| | *").append(rawExpr).append("* | | | |\n");
             }
+            sb.append("\n");
         }
 
         return sb.toString();
