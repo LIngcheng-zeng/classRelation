@@ -19,10 +19,9 @@ public class LineageGraph {
         List<String> leftClasses  = distinctClasses(mapping.leftSide().fields());
         List<String> rightClasses = distinctClasses(mapping.rightSide().fields());
 
-        // Cross-product: each left class → each right class
+        // Cross-product: each left class → each right class (self-relations included)
         for (String src : leftClasses) {
             for (String tgt : rightClasses) {
-                if (src.equals(tgt)) continue; // skip self-relations
                 String key = src + "->" + tgt;
                 graph.computeIfAbsent(key, k -> new ArrayList<>()).add(mapping);
             }

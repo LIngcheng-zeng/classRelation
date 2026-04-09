@@ -7,7 +7,9 @@ import org.example.model.ExpressionSide;
 import org.example.model.FieldRef;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Logger;
 
 /**
@@ -26,9 +28,17 @@ public class FieldRefExtractor {
      * Analyzes an expression and returns an ExpressionSide with all discovered FieldRefs.
      */
     public ExpressionSide extract(Expression expr) {
+        return extract(expr, Collections.emptyMap());
+    }
+
+    /**
+     * Analyzes an expression with a local alias map to resolve intermediate variables.
+     * e.g. given aliasMap {"id" -> user.id}, NameExpr "id" expands to user.id.
+     */
+    public ExpressionSide extract(Expression expr, Map<String, Expression> aliasMap) {
         List<FieldRef> refs = new ArrayList<>();
         String operator = detectOperator(expr);
-        collectFieldRefs(expr, refs);
+        collectFieldRefs(expr, refs, aliasMap);
         return new ExpressionSide(refs, operator);
     }
 
@@ -76,23 +86,22 @@ public class FieldRefExtractor {
     // Recursive field ref collection
     // -------------------------------------------------------------------------
 
-    private void collectFieldRefs(Expression expr, List<FieldRef> refs) {
+    private void collectFieldRefs(Expression expr, List<FieldRef> refs, Map<String, Expression> aliasMap) {
         if (expr instanceof FieldAccessExpr fa) {
             handleFieldAccess(fa, refs);
 
         } else if (expr instanceof NameExpr ne) {
-            // Simple name — could be a field or local variable; attempt type resolution
-            handleNameExpr(ne, refs);
+            handleNameExpr(ne, refs, aliasMap);
 
         } else if (expr instanceof MethodCallExpr mc) {
-            handleMethodCall(mc, refs);
+            handleMethodCall(mc, refs, aliasMap);
 
         } else if (expr instanceof BinaryExpr be) {
-            collectFieldRefs(be.getLeft(), refs);
-            collectFieldRefs(be.getRight(), refs);
+            collectFieldRefs(be.getLeft(), refs, aliasMap);
+            collectFieldRefs(be.getRight(), refs, aliasMap);
 
         } else if (expr instanceof EnclosedExpr enc) {
-            collectFieldRefs(enc.getInner(), refs);
+            collectFieldRefs(enc.getInner(), refs, aliasMap);
         }
         // Literals, null, etc. — ignored
     }
@@ -103,22 +112,35 @@ public class FieldRefExtractor {
         refs.add(new FieldRef(className, fieldName));
     }
 
-    private void handleNameExpr(NameExpr ne, List<FieldRef> refs) {
+    private void handleNameExpr(NameExpr ne, List<FieldRef> refs, Map<String, Expression> aliasMap) {
+        String varName = ne.getNameAsString();
+
+        // Alias expansion: if this variable was assigned from a known expression, expand it
+        Expression aliased = aliasMap.get(varName);
+        if (aliased != null) {
+            collectFieldRefs(aliased, refs, aliasMap);
+            return;
+        }
+
         try {
             ResolvedType type = ne.calculateResolvedType();
-            // NameExpr resolves to a type itself — not a field access we want
-            // (e.g. static class reference)
+            if (type.isReferenceType()) {
+                // Resolves to a class type reference (e.g. static class) — not a field, skip
+                return;
+            }
         } catch (UnsolvedSymbolException | UnsupportedOperationException ignored) {
-            // Cannot resolve — skip
+            // Cannot resolve type — treat as a variable appearing in context
         }
-        // We do not add bare NameExpr as FieldRef since we cannot determine the owning class reliably
+        // Variable present in expression with no alias: record with null className.
+        // Policy: appearance of a variable implies equality participation.
+        refs.add(new FieldRef(null, varName));
     }
 
-    private void handleMethodCall(MethodCallExpr mc, List<FieldRef> refs) {
+    private void handleMethodCall(MethodCallExpr mc, List<FieldRef> refs, Map<String, Expression> aliasMap) {
         // Recurse into scope and arguments to find field refs within the chain
-        mc.getScope().ifPresent(scope -> collectFieldRefs(scope, refs));
+        mc.getScope().ifPresent(scope -> collectFieldRefs(scope, refs, aliasMap));
         for (Expression arg : mc.getArguments()) {
-            collectFieldRefs(arg, refs);
+            collectFieldRefs(arg, refs, aliasMap);
         }
     }
 

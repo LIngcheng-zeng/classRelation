@@ -17,20 +17,21 @@ public class TableRenderer {
     public String render(List<ClassRelation> relations) {
         if (relations.isEmpty()) return "No class relations found.";
 
-        // Collect all rows: [targetClass.field, sourceFields, type, location]
+        // Collect all rows: [sinkFields, sourceFields, type, mode, location]
         List<String[]> rows = new ArrayList<>();
         for (ClassRelation rel : relations) {
             for (FieldMapping m : rel.mappings()) {
-                String targetFields = formatSide(m.rightSide().fields());
+                String sinkFields   = formatSide(m.rightSide().fields());
                 String sourceFields = formatSide(m.leftSide().fields());
                 String type         = m.type().name();
+                String mode         = m.mode() == org.example.model.MappingMode.WRITE_ASSIGNMENT ? "WRITE" : "READ";
                 String location     = m.location();
-                rows.add(new String[]{ targetFields, sourceFields, type, location });
+                rows.add(new String[]{ sinkFields, sourceFields, type, mode, location });
             }
         }
 
         // Column headers
-        String[] headers = { "目标表字段", "源表字段集合", "映射类型", "代码位置" };
+        String[] headers = { "目标表字段", "源表字段集合", "映射类型", "模式", "代码位置" };
 
         // Compute column widths
         int[] widths = new int[headers.length];

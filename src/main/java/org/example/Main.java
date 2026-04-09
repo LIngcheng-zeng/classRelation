@@ -2,9 +2,11 @@ package org.example;
 
 import org.example.analyzer.LineageAnalyzer;
 import org.example.model.ClassRelation;
-import org.example.renderer.MermaidRenderer;
-import org.example.renderer.TableRenderer;
+import org.example.renderer.MarkdownDocumentRenderer;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
@@ -20,34 +22,37 @@ public class Main {
             System.exit(1);
         }
 
-        Path projectRoot = Paths.get(args[0]);
+        Path projectRoot = Paths.get(args[0]).toAbsolutePath().normalize();
         if (!projectRoot.toFile().isDirectory()) {
             System.err.println("Error: path is not a directory: " + projectRoot);
             System.exit(1);
         }
 
-        log.info("Analyzing project: " + projectRoot.toAbsolutePath());
+        String projectName = projectRoot.getFileName().toString();
+        log.info("Analyzing project: " + projectRoot);
 
         try {
             LineageAnalyzer analyzer = new LineageAnalyzer();
             List<ClassRelation> relations = analyzer.analyze(projectRoot);
 
             if (relations.isEmpty()) {
-                System.out.println("No inter-class equals() relationships detected.");
+                System.out.println("No field associations detected in: " + projectName);
                 return;
             }
 
-            System.out.println("=".repeat(60));
-            System.out.println("  Mermaid Diagram");
-            System.out.println("=".repeat(60));
-            System.out.println(new MermaidRenderer().render(relations));
+            String content = new MarkdownDocumentRenderer().render(projectName, relations);
 
-            System.out.println();
-            System.out.println("=".repeat(60));
-            System.out.println("  Lineage Table");
-            System.out.println("=".repeat(60));
-            System.out.println(new TableRenderer().render(relations));
+            Path outputFile = Paths.get(projectName + ".md");
+            Files.writeString(outputFile, content, StandardCharsets.UTF_8);
 
+            System.out.println("Report written to: " + outputFile.toAbsolutePath());
+            System.out.println("  " + relations.size() + " class relation(s), "
+                    + relations.stream().mapToLong(r -> r.mappings().size()).sum() + " mapping(s) found.");
+
+        } catch (IOException e) {
+            System.err.println("Failed to write report: " + e.getMessage());
+            log.severe("IO error: " + e);
+            System.exit(2);
         } catch (Exception e) {
             System.err.println("Analysis failed: " + e.getMessage());
             log.severe("Analysis failed: " + e);

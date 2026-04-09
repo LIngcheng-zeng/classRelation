@@ -1,12 +1,14 @@
 package org.example.model;
 
 /**
- * Represents one equals()-based field mapping relationship found in source code.
+ * Represents one field mapping relationship found in source code.
+ * Covers both read (equals-based) and write (assignment-based) associations.
  */
 public record FieldMapping(
-        ExpressionSide leftSide,
-        ExpressionSide rightSide,
+        ExpressionSide leftSide,    // data source side
+        ExpressionSide rightSide,   // data sink side
         MappingType type,
+        MappingMode mode,
         String rawExpression,
-        String location          // "FileName.java:42"
+        String location             // "FileName.java:42"
 ) {}

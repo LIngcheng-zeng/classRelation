@@ -2,8 +2,9 @@ package org.example.visitor;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.AssignExpr;
 import com.github.javaparser.ast.expr.Expression;
-import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import org.example.analyzer.LocalAliasResolver;
 
@@ -13,36 +14,39 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * AST visitor that collects all .equals() call sites within a CompilationUnit.
+ * AST visitor that collects field assignment sites within a CompilationUnit.
  * Attaches the enclosing method's local alias map to each site.
+ *
+ * Collected pattern: obj.field = expr
+ * Skipped patterns:
+ *   - bare NameExpr on LHS (local variable, owning class unresolvable)
+ *   - compound assignments (+=, -=, etc.)
  */
-public class EqualsCallVisitor {
+public class AssignmentVisitor {
 
-    public List<EqualCallSite> visit(CompilationUnit cu, String fileName) {
-        List<EqualCallSite> sites = new ArrayList<>();
+    public List<AssignmentSite> visit(CompilationUnit cu, String fileName) {
+        List<AssignmentSite> sites = new ArrayList<>();
 
         new VoidVisitorAdapter<Map<String, Expression>>() {
             @Override
             public void visit(MethodDeclaration n, Map<String, Expression> ignored) {
-                // Build alias map for this method, then visit its body
                 Map<String, Expression> aliasMap = LocalAliasResolver.resolve(n);
                 super.visit(n, aliasMap);
             }
 
             @Override
-            public void visit(MethodCallExpr n, Map<String, Expression> aliasMap) {
+            public void visit(AssignExpr n, Map<String, Expression> aliasMap) {
                 super.visit(n, aliasMap);
 
-                if (!"equals".equals(n.getNameAsString())) return;
-                if (n.getArguments().size() != 1) return;
-                if (n.getScope().isEmpty()) return;
+                if (n.getOperator() != AssignExpr.Operator.ASSIGN) return;
+                if (!(n.getTarget() instanceof FieldAccessExpr)) return;
 
                 String location = fileName + ":"
                         + n.getBegin().map(p -> String.valueOf(p.line)).orElse("?");
 
-                sites.add(new EqualCallSite(
-                        n.getScope().get(),
-                        n.getArgument(0),
+                sites.add(new AssignmentSite(
+                        n.getTarget(),
+                        n.getValue(),
                         n,
                         location,
                         aliasMap != null ? aliasMap : Collections.emptyMap()

@@ -2,6 +2,7 @@ package org.example.renderer;
 
 import org.example.model.ClassRelation;
 import org.example.model.FieldMapping;
+import org.example.model.MappingMode;
 import org.example.model.MappingType;
 
 import java.util.LinkedHashSet;
@@ -32,7 +33,9 @@ public class MermaidRenderer {
 
             for (FieldMapping m : rel.mappings()) {
                 String label = buildLabel(m);
-                String edge = "    " + src + " -->|\"" + label + "\"| " + tgt;
+                // READ_PREDICATE: solid arrow -->  WRITE_ASSIGNMENT: dashed arrow -.->
+                String arrow = m.mode() == MappingMode.WRITE_ASSIGNMENT ? "-.->" : "-->";
+                String edge = "    " + src + " " + arrow + "|\"" + label + "\"| " + tgt;
                 drawnEdges.add(edge);
             }
         }
@@ -54,9 +57,9 @@ public class MermaidRenderer {
 
     private String abbrev(MappingType type) {
         return switch (type) {
-            case ATOMIC        -> "AE";   // Atomic Equality
-            case COMPOSITE     -> "CP";   // Composite Projection
-            case PARAMETERIZED -> "PD";   // Parameterized Dynamic
+            case ATOMIC        -> "AE";   // Atomic Equality / Atomic Write
+            case COMPOSITE     -> "CP";   // Composite Projection / Composite Write
+            case PARAMETERIZED -> "PD";   // Parameterized Dynamic / Parameterized Write
         };
     }
 
