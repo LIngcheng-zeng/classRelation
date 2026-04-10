@@ -119,6 +119,23 @@ class FieldRefExtractor {
     private void handleFieldAccess(FieldAccessExpr fa, List<FieldRef> refs,
                                     Map<String, Expression> aliasMap, Set<String> visited) {
         String fieldName = fa.getNameAsString();
+        
+        // Primary path: use fa.resolve() for accurate type resolution (covers non-Lombok chains)
+        try {
+            com.github.javaparser.resolution.declarations.ResolvedFieldDeclaration resolvedField = fa.resolve().asField();
+            com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration declaringType = resolvedField.declaringType();
+            if (declaringType != null && declaringType.isReferenceType()) {
+                String qualifiedName = declaringType.asReferenceType().getQualifiedName();
+                int dot = qualifiedName.lastIndexOf('.');
+                String className = dot >= 0 ? qualifiedName.substring(dot + 1) : qualifiedName;
+                refs.add(new FieldRef(className, fieldName));
+                return;
+            }
+        } catch (Exception ignored) {
+            // Fallback to original scope-based resolution
+        }
+        
+        // Fallback: resolve from scope expression
         String className = resolveClassNameFromScope(fa.getScope(), aliasMap, visited);
         refs.add(new FieldRef(className, fieldName));
     }

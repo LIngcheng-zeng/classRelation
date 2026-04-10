@@ -7,6 +7,7 @@ import spoon.reflect.declaration.CtExecutable;
 import spoon.reflect.declaration.CtMethod;
 import spoon.reflect.declaration.CtType;
 import spoon.reflect.code.CtExpression;
+import spoon.reflect.CtModel;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -36,12 +37,13 @@ public class SpoonAnalyzer implements SourceAnalyzer {
         Launcher launcher = buildLauncher(projectRoot);
         if (launcher == null) return List.of();
 
+        CtModel model = launcher.getModel();
         List<FieldMapping> mappings = new ArrayList<>();
 
-        for (CtType<?> type : launcher.getModel().getAllTypes()) {
+        for (CtType<?> type : model.getAllTypes()) {
             for (CtMethod<?> method : type.getMethods()) {
                 if (method.getBody() == null) continue;
-                mappings.addAll(analyzeExecutable(method));
+                mappings.addAll(analyzeExecutable(method, model));
             }
         }
 
@@ -51,12 +53,12 @@ public class SpoonAnalyzer implements SourceAnalyzer {
 
     // -------------------------------------------------------------------------
 
-    private List<FieldMapping> analyzeExecutable(CtMethod<?> method) {
+    private List<FieldMapping> analyzeExecutable(CtMethod<?> method, CtModel model) {
         Map<String, CtExpression<?>> aliasMap = SpoonAliasBuilder.build(method);
         if (aliasMap.isEmpty()) return List.of();
 
         CallProjectionExtractor extractor = new CallProjectionExtractor();
-        extractor.extract(method, aliasMap);
+        extractor.extract(method, aliasMap, model);
         return extractor.results();
     }
 
