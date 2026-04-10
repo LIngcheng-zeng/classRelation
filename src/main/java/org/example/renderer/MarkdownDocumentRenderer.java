@@ -43,6 +43,14 @@ public class MarkdownDocumentRenderer {
         sb.append("## 关联图谱\n\n");
         sb.append(mermaidRenderer.render(relations)).append("\n\n");
         sb.append("> 实线箭头 `-->` 为探测型（READ），虚线箭头 `-.->` 为动作型（WRITE）。\n\n");
+        
+        // Legend for relationship type abbreviations
+        sb.append("### 关系类型说明\n\n");
+        sb.append("| 缩写 | 全称 | 含义 | 示例 |\n");
+        sb.append("|---|---|---|---|\n");
+        sb.append("| **AE** | Atomic Equality | 原子等值：单字段对单字段的直接映射 | `A.id ≡ B.userId` |\n");
+        sb.append("| **CP** | Composite Projection | 投影组合：多字段组合或拼接后的映射 | `A.f1 + A.f2 ≡ B.full` |\n");
+        sb.append("| **PD** | Parameterized / Derived | 参数化/派生：经过转换、归一化或依赖上下文的映射 | `A.code.toLowerCase() ≡ B.value` |\n\n");
 
         // Split relations into direct vs transitive
         List<ClassRelation> direct     = new java.util.ArrayList<>();

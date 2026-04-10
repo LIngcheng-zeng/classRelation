@@ -6,7 +6,7 @@
 |---|---|
 | 涉及类关系对（直接） | 9 |
 | 探测型关联（READ） | 2 |
-| 动作型关联（WRITE） | 11 |
+| 动作型关联（WRITE） | 10 |
 | 推导关联（传递闭包） | 0 |
 
 ## 关联图谱
@@ -16,9 +16,8 @@ flowchart LR
     Address -->|"PD: Address.zip ≡ User.areaCode"| User
     User -->|"CP: format(User.id, User.phone) ≡ format(Order.userId, Order.phone)"| Order
     User -.->|"CP: User.id ≡ Order.userId"| Order
-    User -.->|"AE: User.id ≡ Invoice.buyerId"| Invoice
-    User -.->|"PD: User.id ≡ Invoice.buyerId"| Invoice
     User -.->|"AE: User.name ≡ Employee.lastName"| Employee
+    User -.->|"PD: User.id ≡ Invoice.buyerId"| Invoice
     OrderDTO -.->|"PD: OrderDTO.holds ≡ Order.held"| Order
     UserOrderDTO -.->|"PD: UserOrderDTO.holds ≡ OrderDTO.held"| OrderDTO
     UserOrderDTO -.->|"PD: UserOrderDTO.holds ≡ User.held"| User
@@ -28,6 +27,14 @@ flowchart LR
 ```
 
 > 实线箭头 `-->` 为探测型（READ），虚线箭头 `-.->` 为动作型（WRITE）。
+
+### 关系类型说明
+
+| 缩写 | 全称 | 含义 | 示例 |
+|---|---|---|---|
+| **AE** | Atomic Equality | 原子等值：单字段对单字段的直接映射 | `A.id ≡ B.userId` |
+| **CP** | Composite Projection | 投影组合：多字段组合或拼接后的映射 | `A.f1 + A.f2 ≡ B.full` |
+| **PD** | Parameterized / Derived | 参数化/派生：经过转换、归一化或依赖上下文的映射 | `A.code.toLowerCase() ≡ B.value` |
 
 ## 字段血缘明细
 
@@ -46,30 +53,28 @@ flowchart LR
 
 | 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
 |---|---|---|---|---|---|
-| `Order.userId`, `Order.phone` | `User.id`, `User.phone` | COMPOSITE | READ | `CustomService.java:58` |
+| `Order.userId`, `Order.phone` | `User.id`, `User.phone` | COMPOSITE | READ | `CustomService.java:63` |
 | | *userAndPhone.equals(userAndPhone2)* | | | |
 | `Order.userId` | `User.id` | COMPOSITE | WRITE | `CustomService.java:14` |
 | | *order.userId = "P" + id* | | | |
 | `Order.held` | `OrderDTO.holds` | PARAMETERIZED | WRITE | `main(composition)` |
 | | *userOrderDTO.getOrderDTO().getOrder()* | | | |
 
-### Invoice
-
-| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
-|---|---|---|---|---|---|
-| `Invoice.buyerId` | `User.id` | ATOMIC | WRITE | `CustomService.java:38` |
-| | *invoice.setBuyerId(user.getId())* | | | |
-| `Invoice.buyerId` | `User.id` | PARAMETERIZED | WRITE | `generateInvoice(projected)` |
-| | *invoice.setBuyerId(user.getId())* | | | |
-| `Invoice.refOrderId` | `Order.orderId` | PARAMETERIZED | WRITE | `generateInvoice(projected)` |
-| | *invoice.setRefOrderId(orderId)* | | | |
-
 ### Employee
 
 | 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
 |---|---|---|---|---|---|
-| `Employee.lastName` | `User.name` | ATOMIC | WRITE | `CustomService.java:47` |
+| `Employee.lastName` | `User.name` | ATOMIC | WRITE | `CustomService.java:52` |
 | | *employee.setLastName(user.getName())* | | | |
+
+### Invoice
+
+| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+|---|---|---|---|---|---|
+| `Invoice.buyerId` | `User.id` | PARAMETERIZED | WRITE | `fillInvoice(projected)` |
+| | *invoice.setBuyerId(userId)* | | | |
+| `Invoice.refOrderId` | `Order.orderId` | PARAMETERIZED | WRITE | `fillInvoice(projected)` |
+| | *invoice.setRefOrderId(orderId)* | | | |
 
 ### OrderDTO
 
