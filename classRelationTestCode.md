@@ -5,29 +5,28 @@
 | 项目 | 数值 |
 |---|---|
 | 涉及类关系对（直接） | 11 |
-| 探测型关联（READ） | 2 |
-| 动作型关联（WRITE） | 15 |
-| 推导关联（传递闭包） | 2 |
+| 探测型关联（READ） | 4 |
+| 动作型关联（WRITE） | 17 |
+| 推导关联（传递闭包） | 1 |
 
 ## 关联图谱
 
 ```mermaid
 flowchart LR
     linkStyle default stroke:#999,stroke-width:1px
-    Address -->|"PD: Address.zip ≡ User.areaCode"| User:::readRel
-    User -->|"CP: format(User.id, User.phone) ≡ format(Order.userId, Order.phone)"| Order:::readRel
-    User -.->|"CP: User.id ≡ Order.userId"| Order:::writeRel
     User -.->|"AE: User.name ≡ Employee.lastName"| Employee:::writeRel
     User -.->|"PD: User.name ≡ Employee.lastName"| Employee:::writeRel
-    User -.->|"PD: User.id ≡ Invoice.buyerId"| Invoice:::writeRel
+    User -->|"CP: format(User.id, User.phone) ≡ format(Order.userId, Order.phone)"| Order:::readRel
+    Order -->|"AE: Order.orderId ≡ Invoice.refOrderId"| Invoice:::readRel
+    Address -->|"PD: Address.zip ≡ User.areaCode"| User:::readRel
     OrderDTO -.->|"has"| Order:::writeRel
-    UserOrderDTO -.->|"has"| OrderDTO:::writeRel
+    Order -.->|"PD: Order.city ≡ Address.city"| Address:::writeRel
     UserOrderDTO -.->|"has"| User:::writeRel
     User -.->|"PD: User.phone ≡ Account.fullMobile"| Account:::writeRel
     User -.->|"PD: User.id ≡ Account.userId"| Account:::writeRel
-    Order -.->|"PD: Order.city ≡ Address.city"| Address:::writeRel
+    UserOrderDTO -.->|"has"| OrderDTO:::writeRel
     Order -.->|"PD: Order.userId ≡ VipUser.id"| VipUser:::writeRel
-    Order -.->|"PD: Order.orderId ≡ Invoice.refOrderId"| Invoice:::writeRel
+    User -.->|"PD: User.id ≡ Invoice.buyerId"| Invoice:::writeRel
     VipUser -.->|"extends"| User:::inheritRel
     classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
     classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
@@ -52,79 +51,87 @@ flowchart LR
 
 ## 字段血缘明细
 
-### User
+### Employee
 
 | 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
 |---|---|---|---|---|---|
-| `User.areaCode` | `Address.zip` | PARAMETERIZED | READ | `CustomService.java:31` | `toLowerCase()` |
-| | *address.getZip().toLowerCase().equals(user.getAreaCode())* | | | |
-| `User.held` | `UserOrderDTO.holds` | PARAMETERIZED | WRITE | `main(composition)` |
-| | *userOrderDTO.getUser()* | | | |
-| `User.held` | `UserOrderDTO.holds` | PARAMETERIZED | WRITE | `main(composition)` |
-| | *userOrderDTO.getUser()* | | | |
+| `Employee.lastName` | `User.name` | ATOMIC | WRITE | `RecursiveCallTest.java:28` |
+| | *employee.setLastName(user.getName())* | | | |
+| `Employee.lastName` | `User.name` | PARAMETERIZED | WRITE | `iterateCall(direct-setter)` |
+| | *// 字段映射：user.name -> employee.lastName employee.setLastName(user.getName())* | | | |
 
 ### Order
 
 | 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
 |---|---|---|---|---|---|
-| `Order.userId`, `Order.phone` | `User.id`, `User.phone` | COMPOSITE | READ | `CustomService.java:66` |
-| | *userAndPhone.equals(userAndPhone2)* | | | |
-| `Order.userId` | `User.id` | COMPOSITE | WRITE | `CustomService.java:14` |
-| | *order.userId = "P" + id* | | | |
-| `Order.held` | `OrderDTO.holds` | PARAMETERIZED | WRITE | `main(composition)` |
+| `Order.userId`, `Order.phone` | `User.id`, `User.phone` | COMPOSITE | READ | `CompositeProjectionTest.java:21` |
+| | *userAndPhone.equals(orderAndPhone)* | | | |
+| `Order.held` | `OrderDTO.holds` | PARAMETERIZED | WRITE | `buildAddressFromOrder(composition)` |
+| | *orderDTO.getOrder()* | | | |
+| `Order.held` | `OrderDTO.holds` | PARAMETERIZED | WRITE | `extractOrderId(composition)` |
 | | *userOrderDTO.getOrderDTO().getOrder()* | | | |
-| `Order.held` | `OrderDTO.holds` | PARAMETERIZED | WRITE | `main(composition)` |
+| `Order.held` | `OrderDTO.holds` | PARAMETERIZED | WRITE | `testVipUserInheritedFields(composition)` |
 | | *orderDTO.getOrder()* | | | |
-| `Order.held` | `OrderDTO.holds` | PARAMETERIZED | WRITE | `main(composition)` |
-| | *orderDTO.getOrder()* | | | |
-
-### Employee
-
-| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
-|---|---|---|---|---|---|
-| `Employee.lastName` | `User.name` | ATOMIC | WRITE | `CustomService.java:55` |
-| | *employee.setLastName(user.getName())* | | | |
-| `Employee.lastName` | `User.name` | PARAMETERIZED | WRITE | `iterateCall(direct-setter)` |
-| | *employee.setLastName(user.getName())* | | | |
 
 ### Invoice
 
 | 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
 |---|---|---|---|---|---|
+| `Invoice.refOrderId` | `Order.orderId` | ATOMIC | READ | `AtomicEqualityTest.java:19` |
+| | *order.getOrderId().equals(invoice.getRefOrderId())* | | | |
+| `Invoice.buyerId` | `User.id` | PARAMETERIZED | WRITE | `fillInvoice(projected)` |
+| | *// 这里建立映射：userId -> invoice.buyerId, orderId -> invoice.refOrderId invoice.setBuyerId(userId)* | | | |
 | `Invoice.buyerId` | `User.id` | PARAMETERIZED | WRITE | `fillInvoice(projected)` |
 | | *invoice.setBuyerId(userId)* | | | |
-| `Invoice.refOrderId` | `Order.orderId` | PARAMETERIZED | WRITE | `fillInvoice(projected)` |
-| | *invoice.setRefOrderId(orderId)* | | | |
 
-### OrderDTO
+### User
 
 | 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
 |---|---|---|---|---|---|
-| `OrderDTO.held` | `UserOrderDTO.holds` | PARAMETERIZED | WRITE | `main(composition)` |
-| | *userOrderDTO.getOrderDTO()* | | | |
-
-### Account
-
-| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
-|---|---|---|---|---|---|
-| `Account.fullMobile` | `User.phone` | PARAMETERIZED | WRITE | `main(constructor-call)` |
-| | *new Account(userOrderDTO.getUser().getPhone(), userOrderDTO.getUser().getId())* | | | |
-| `Account.userId` | `User.id` | PARAMETERIZED | WRITE | `main(constructor-call)` |
-| | *new Account(userOrderDTO.getUser().getPhone(), userOrderDTO.getUser().getId())* | | | |
+| `User.areaCode` | `Address.zip` | PARAMETERIZED | READ | `NormalizationTest.java:16` | `toLowerCase()` |
+| | *address.getZip().toLowerCase().equals(user.getAreaCode())* | | | |
+| `User.areaCode` | `Address.zip` | PARAMETERIZED | READ | `BuilderPatternTest.java:25` | `toLowerCase()` |
+| | *address.getZip().toLowerCase().equals(user.getAreaCode())* | | | |
+| `User.held` | `UserOrderDTO.holds` | PARAMETERIZED | WRITE | `createAccountFromUser(composition)` |
+| | *userOrderDTO.getUser()* | | | |
+| `User.held` | `UserOrderDTO.holds` | PARAMETERIZED | WRITE | `createAccountFromUser(composition)` |
+| | *userOrderDTO.getUser()* | | | |
+| `User.held` | `UserOrderDTO.holds` | PARAMETERIZED | WRITE | `extractUserPhone(composition)` |
+| | *userOrderDTO.getUser()* | | | |
 
 ### Address
 
 | 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
 |---|---|---|---|---|---|
-| `Address.city` | `Order.city` | PARAMETERIZED | WRITE | `main(builder)` |
+| `Address.city` | `Order.city` | PARAMETERIZED | WRITE | `buildAddressFromOrder(builder)` |
 | | *Address.builder().city(orderDTO.getOrder().getCity())* | | | |
+
+### Account
+
+| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+|---|---|---|---|---|---|
+| `Account.fullMobile` | `User.phone` | PARAMETERIZED | WRITE | `createAccountFromUser(constructor-call)` |
+| | *new Account(userOrderDTO.getUser().getPhone(), userOrderDTO.getUser().getId())* | | | |
+| `Account.userId` | `User.id` | PARAMETERIZED | WRITE | `createAccountFromUser(constructor-call)` |
+| | *new Account(userOrderDTO.getUser().getPhone(), userOrderDTO.getUser().getId())* | | | |
+| `Account.fullMobile` | `User.phone` | PARAMETERIZED | WRITE | `createSimpleAccount(constructor-call)` |
+| | *new Account(user.getPhone(), user.getId())* | | | |
+| `Account.userId` | `User.id` | PARAMETERIZED | WRITE | `createSimpleAccount(constructor-call)` |
+| | *new Account(user.getPhone(), user.getId())* | | | |
+
+### OrderDTO
+
+| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+|---|---|---|---|---|---|
+| `OrderDTO.held` | `UserOrderDTO.holds` | PARAMETERIZED | WRITE | `extractOrderId(composition)` |
+| | *userOrderDTO.getOrderDTO()* | | | |
 
 ### VipUser
 
 | 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
 |---|---|---|---|---|---|
-| `VipUser.id` | `Order.userId` | PARAMETERIZED | WRITE | `main(direct-setter)` |
-| | *vipUser.setId(orderDTO.getOrder().getUserId())* | | | |
+| `VipUser.id` | `Order.userId` | PARAMETERIZED | WRITE | `testVipUserInheritedFields(direct-setter)` |
+| | *// VipUser 继承自 User，可以使用 id 字段 vipUser.setId(orderDTO.getOrder().getUserId())* | | | |
 
 ## 推导关联（传递性闭包）
 
@@ -135,5 +142,4 @@ flowchart LR
 | 目标表字段 | 源表字段集合 | 推导路径 |
 |---|---|---|
 | `VipUser.id` | `User.id`, `User.phone` | *[User.id, User.phone] → [Order.userId, Order.phone] → VipUser.id* |
-| `VipUser.id` | `User.id` | *User.id → Order.userId → VipUser.id* |
 
