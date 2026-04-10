@@ -17,7 +17,7 @@ public class TableRenderer {
     public String render(List<ClassRelation> relations) {
         if (relations.isEmpty()) return "No class relations found.";
 
-        // Collect all rows: [sinkFields, sourceFields, type, mode, location]
+        // Collect all rows: [sinkFields, sourceFields, type, mode, location, normalization]
         List<String[]> rows = new ArrayList<>();
         for (ClassRelation rel : relations) {
             for (FieldMapping m : rel.mappings()) {
@@ -26,12 +26,15 @@ public class TableRenderer {
                 String type         = m.type().name();
                 String mode         = m.mode() == org.example.model.MappingMode.WRITE_ASSIGNMENT ? "WRITE" : "READ";
                 String location     = m.location();
-                rows.add(new String[]{ sinkFields, sourceFields, type, mode, location });
+                String normalization = m.normalization() != null && !m.normalization().isEmpty()
+                        ? String.join(", ", m.normalization())
+                        : "";
+                rows.add(new String[]{ sinkFields, sourceFields, type, mode, location, normalization });
             }
         }
 
         // Column headers
-        String[] headers = { "目标表字段", "源表字段集合", "映射类型", "模式", "代码位置" };
+        String[] headers = { "目标表字段", "源表字段集合", "映射类型", "模式", "代码位置", "归一化操作" };
 
         // Compute column widths
         int[] widths = new int[headers.length];

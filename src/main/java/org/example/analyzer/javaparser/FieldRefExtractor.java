@@ -42,9 +42,47 @@ class FieldRefExtractor {
 
     ExpressionSide extract(Expression expr, Map<String, Expression> aliasMap) {
         List<FieldRef> refs = new ArrayList<>();
-        String operator = detectOperator(expr);
-        collectFieldRefs(expr, refs, aliasMap, new HashSet<>());
+        
+        // GAP-02 Fix: First expand aliases to get the actual expression structure
+        Expression expandedExpr = expandAliases(expr, aliasMap, new HashSet<>());
+        
+        // Then detect operator on the expanded expression
+        String operator = detectOperator(expandedExpr);
+        
+        // Collect field refs from the expanded expression
+        collectFieldRefs(expandedExpr, refs, aliasMap, new HashSet<>());
         return new ExpressionSide(refs, operator);
+    }
+    
+    /**
+     * Extracts normalization operations from an expression chain.
+     * GAP-03: Captures operations like toLowerCase(), trim(), replace(), etc.
+     */
+    List<String> extractNormalization(Expression expr) {
+        List<String> normalizations = new ArrayList<>();
+        collectNormalizationOps(expr, normalizations);
+        return normalizations;
+    }
+    
+    /**
+     * Expands aliases in an expression to reveal the actual expression structure.
+     * GAP-02 Fix: This ensures operator detection sees the real operators (+, format, etc.)
+     * instead of just variable names.
+     */
+    private Expression expandAliases(Expression expr, Map<String, Expression> aliasMap, Set<String> visited) {
+        if (expr instanceof NameExpr ne) {
+            String varName = ne.getNameAsString();
+            if (!visited.contains(varName)) {
+                Expression aliased = aliasMap.get(varName);
+                if (aliased != null) {
+                    visited.add(varName);
+                    // Recursively expand in case of chained aliases
+                    return expandAliases(aliased, aliasMap, visited);
+                }
+            }
+        }
+        // For non-NameExpr or unresolvable aliases, return as-is
+        return expr;
     }
 
     /**
@@ -242,5 +280,74 @@ class FieldRefExtractor {
             return mc.getNameAsString() + "()";
         }
         return scope.toString();
+    }
+    
+    // -------------------------------------------------------------------------
+    // Normalization operation collection (GAP-03)
+    // -------------------------------------------------------------------------
+    
+    /**
+     * Collects normalization operations from method call chains.
+     * Examples: toLowerCase(), trim(), replace("-", ""), String.valueOf(), etc.
+     */
+    private void collectNormalizationOps(Expression expr, List<String> normalizations) {
+        if (expr instanceof MethodCallExpr mc) {
+            String methodName = mc.getNameAsString();
+            
+            // Check if this is a normalization method
+            if (isNormalizationMethod(methodName)) {
+                // Build a readable representation of the operation
+                String opDesc = buildNormalizationDescription(mc);
+                normalizations.add(opDesc);
+            }
+            
+            // Recursively check the scope (the object being called on)
+            mc.getScope().ifPresent(scope -> collectNormalizationOps(scope, normalizations));
+        } else if (expr instanceof EnclosedExpr enc) {
+            collectNormalizationOps(enc.getInner(), normalizations);
+        }
+        // Other expression types don't contain normalization ops
+    }
+    
+    /**
+     * Checks if a method name represents a normalization operation.
+     */
+    private boolean isNormalizationMethod(String methodName) {
+        return methodName.equals("toLowerCase") 
+            || methodName.equals("toUpperCase")
+            || methodName.equals("trim")
+            || methodName.equals("strip")
+            || methodName.equals("replace")
+            || methodName.equals("replaceAll")
+            || methodName.equals("replaceFirst")
+            || methodName.equals("substring")
+            || methodName.equals("valueOf")  // String.valueOf()
+            || methodName.equals("toString")
+            || methodName.equals("intValue")
+            || methodName.equals("longValue")
+            || methodName.equals("doubleValue")
+            || methodName.equals("floatValue")
+            || methodName.equals("trimToNull")  // Apache Commons
+            || methodName.equals("trimToEmpty")  // Apache Commons
+            || methodName.equals("normalize");   // Unicode normalization
+    }
+    
+    /**
+     * Builds a human-readable description of the normalization operation.
+     */
+    private String buildNormalizationDescription(MethodCallExpr mc) {
+        String methodName = mc.getNameAsString();
+        
+        // For methods with arguments, include them in the description
+        if (!mc.getArguments().isEmpty()) {
+            String args = mc.getArguments().stream()
+                    .map(arg -> arg.toString())
+                    .limit(2)  // Limit to first 2 args for readability
+                    .reduce((a, b) -> a + ", " + b)
+                    .orElse("");
+            return methodName + "(" + args + ")";
+        }
+        
+        return methodName + "()";
     }
 }

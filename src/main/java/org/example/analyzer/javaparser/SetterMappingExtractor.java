@@ -68,7 +68,11 @@ class SetterMappingExtractor implements MappingExtractor {
 
                 MappingType type    = classifier.classify(sourceSide, sinkSide);
                 String      rawExpr = truncate(n.toString());
-                result.add(new FieldMapping(sourceSide, sinkSide, type, MappingMode.WRITE_ASSIGNMENT, rawExpr, location));
+                
+                // GAP-03: Extract normalization operations from setter argument
+                List<String> normOps = fieldRefExtractor.extractNormalization(value);
+                
+                result.add(new FieldMapping(sourceSide, sinkSide, type, MappingMode.WRITE_ASSIGNMENT, rawExpr, location, normOps));
             }
 
             private boolean isSetter(MethodCallExpr mc) {

@@ -9,6 +9,15 @@ import org.example.model.MappingType;
 public class RelationshipClassifier {
 
     public MappingType classify(ExpressionSide left, ExpressionSide right) {
+        // GAP-01 Fix: If either side has a field with className=null (unresolved variable),
+        // classify as PARAMETERIZED since it depends on external context
+        boolean leftHasNullClass = left.fields().stream().anyMatch(f -> f.className() == null);
+        boolean rightHasNullClass = right.fields().stream().anyMatch(f -> f.className() == null);
+        
+        if (leftHasNullClass || rightHasNullClass) {
+            return MappingType.PARAMETERIZED;
+        }
+        
         boolean leftTransform  = "transform".equals(left.operatorDesc());
         boolean rightTransform = "transform".equals(right.operatorDesc());
 

@@ -79,8 +79,8 @@ public class MarkdownDocumentRenderer {
                 sb.append("| 目标表字段 | 源表字段集合 | 推导路径 |\n");
                 sb.append("|---|---|---|\n");
             } else {
-                sb.append("| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 |\n");
-                sb.append("|---|---|---|---|---|\n");
+                sb.append("| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |\n");
+                sb.append("|---|---|---|---|---|---|\n");
             }
             for (FieldMapping m : entry.getValue()) {
                 String sink    = formatSide(m.rightSide());
@@ -94,12 +94,17 @@ public class MarkdownDocumentRenderer {
                     String type = m.type().name();
                     String mode = m.mode() == MappingMode.WRITE_ASSIGNMENT ? "WRITE" : "READ";
                     String loc  = m.location();
+                    String norm = m.normalization() != null && !m.normalization().isEmpty()
+                            ? String.join(", ", m.normalization())
+                            : "";
                     sb.append("| ").append(sink)
                       .append(" | ").append(source)
                       .append(" | ").append(type)
                       .append(" | ").append(mode)
-                      .append(" | `").append(loc).append("` |\n");
-                    sb.append("| | *").append(rawExpr).append("* | | | |\n");
+                      .append(" | `").append(loc).append("` |")
+                      .append(norm.isEmpty() ? "" : " `" + norm + "` |")
+                      .append("\n");
+                    sb.append("| | *" + rawExpr + "* | | | |\n");
                 }
             }
             sb.append("\n");

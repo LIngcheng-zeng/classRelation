@@ -64,7 +64,11 @@ class AssignmentMappingExtractor implements MappingExtractor {
 
                 MappingType type    = classifier.classify(sourceSide, sinkSide);
                 String      rawExpr = truncate(n.toString());
-                result.add(new FieldMapping(sourceSide, sinkSide, type, MappingMode.WRITE_ASSIGNMENT, rawExpr, location));
+                
+                // GAP-03: Extract normalization operations from RHS (source)
+                List<String> normOps = fieldRefExtractor.extractNormalization(n.getValue());
+                
+                result.add(new FieldMapping(sourceSide, sinkSide, type, MappingMode.WRITE_ASSIGNMENT, rawExpr, location, normOps));
             }
         }.visit(cu, Collections.emptyMap());
 

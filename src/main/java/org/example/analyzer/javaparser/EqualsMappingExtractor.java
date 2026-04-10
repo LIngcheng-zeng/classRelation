@@ -73,7 +73,15 @@ class EqualsMappingExtractor implements MappingExtractor {
 
                 MappingType type   = classifier.classify(leftSide, rightSide);
                 String      rawExpr = truncate(n.toString());
-                result.add(new FieldMapping(leftSide, rightSide, type, MappingMode.READ_PREDICATE, rawExpr, location));
+                
+                // GAP-03: Extract normalization operations from both sides
+                List<String> leftNorm = fieldRefExtractor.extractNormalization(caller);
+                List<String> rightNorm = fieldRefExtractor.extractNormalization(argument);
+                List<String> allNorm = new ArrayList<>();
+                allNorm.addAll(leftNorm);
+                allNorm.addAll(rightNorm);
+                
+                result.add(new FieldMapping(leftSide, rightSide, type, MappingMode.READ_PREDICATE, rawExpr, location, allNorm));
             }
 
             private boolean isObjectsScope(MethodCallExpr n) {
