@@ -1,6 +1,7 @@
 package org.example.analyzer;
 
 import org.example.analyzer.javaparser.JavaParserAnalyzer;
+import org.example.analyzer.spoon.SpoonAnalyzer;
 import org.example.expander.TransitiveClosureExpander;
 import org.example.graph.LineageGraph;
 import org.example.model.ClassRelation;
@@ -25,9 +26,12 @@ public class LineageAnalyzer {
     private final List<SourceAnalyzer>      analyzers;
     private final TransitiveClosureExpander expander = new TransitiveClosureExpander();
 
-    /** Default constructor: uses only the JavaParser backend. */
+    /**
+     * Default constructor: JavaParser handles direct assignments / setters / equals;
+     * Spoon handles inter-procedural call-chain field mappings.
+     */
     public LineageAnalyzer() {
-        this(List.of(new JavaParserAnalyzer()));
+        this(List.of(new JavaParserAnalyzer(), new SpoonAnalyzer()));
     }
 
     public LineageAnalyzer(List<SourceAnalyzer> analyzers) {

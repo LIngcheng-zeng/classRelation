@@ -215,6 +215,9 @@ class FieldRefExtractor {
             // Capitalize first letter: variable 'order' → class hint 'Order'
             return Character.toUpperCase(name.charAt(0)) + name.substring(1);
         }
+        if (scope instanceof ObjectCreationExpr oce) {
+            return oce.getTypeAsString();
+        }
         if (scope instanceof FieldAccessExpr fa) {
             return fa.getNameAsString();
         }
