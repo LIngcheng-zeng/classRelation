@@ -51,7 +51,9 @@ class CallProjectionExtractor {
     private static final int MAX_DEPTH = 3;
 
     private final List<FieldMapping> results = new ArrayList<>();
-    private CtModel model;  // For Lombok getter resolution
+
+    /** Spoon model used for Lombok-aware getter return type resolution. May be null. */
+    private CtModel model;
 
     /**
      * Entry point: analyze one method in the context of its own alias map.

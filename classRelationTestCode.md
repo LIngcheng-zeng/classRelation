@@ -6,7 +6,7 @@
 |---|---|
 | 涉及类关系对（直接） | 9 |
 | 探测型关联（READ） | 2 |
-| 动作型关联（WRITE） | 10 |
+| 动作型关联（WRITE） | 11 |
 | 推导关联（传递闭包） | 0 |
 
 ## 关联图谱
@@ -59,6 +59,8 @@ flowchart LR
 | | *order.userId = "P" + id* | | | |
 | `Order.held` | `OrderDTO.holds` | PARAMETERIZED | WRITE | `main(composition)` |
 | | *userOrderDTO.getOrderDTO().getOrder()* | | | |
+| `Order.held` | `OrderDTO.holds` | PARAMETERIZED | WRITE | `main(composition)` |
+| | *orderDTO.getOrder()* | | | |
 
 ### Employee
 

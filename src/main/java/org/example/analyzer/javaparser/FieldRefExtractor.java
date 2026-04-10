@@ -237,7 +237,10 @@ class FieldRefExtractor {
     private String resolveClassNameFromScope(Expression scope,
                                               Map<String, Expression> aliasMap,
                                               Set<String> visited) {
-        // Step 1: if scope is a variable name, expand via alias map first
+        // Step 1: if scope is a variable name, expand via alias map first.
+        // Only use the alias-expanded result if it resolves to a clean class name.
+        // If the alias is a builder chain (e.g. Address.builder()...build()), expansion
+        // returns "build()" which is not a class name — fall through to SymbolSolver.
         if (scope instanceof NameExpr ne) {
             String varName = ne.getNameAsString();
             if (!visited.contains(varName)) {
@@ -245,7 +248,8 @@ class FieldRefExtractor {
                 if (aliased != null) {
                     visited.add(varName);
                     String resolved = resolveClassNameFromScope(aliased, aliasMap, visited);
-                    if (resolved != null) return resolved;
+                    if (looksLikeClassName(resolved)) return resolved;
+                    // Alias did not produce a usable class name — try SymbolSolver below
                 }
             }
         }
@@ -264,6 +268,18 @@ class FieldRefExtractor {
         return extractScopeName(scope);
     }
 
+    /**
+     * Returns true only when {@code name} looks like a bare Java class name:
+     * non-null, non-empty, starts with uppercase, no "(" and no ".".
+     */
+    private boolean looksLikeClassName(String name) {
+        return name != null
+                && !name.isEmpty()
+                && Character.isUpperCase(name.charAt(0))
+                && !name.contains("(")
+                && !name.contains(".");
+    }
+
     private String extractScopeName(Expression scope) {
         if (scope instanceof NameExpr ne) {
             String name = ne.getNameAsString();
@@ -278,9 +294,35 @@ class FieldRefExtractor {
             return fa.getNameAsString();
         }
         if (scope instanceof MethodCallExpr mc) {
+            // Builder pattern: Address.builder().setX(...).build() → "Address"
+            String builderClass = extractBuilderRootClass(mc);
+            if (builderClass != null) return builderClass;
             return mc.getNameAsString() + "()";
         }
         return scope.toString();
+    }
+
+    /**
+     * Detects the Builder pattern by walking the method-call chain.
+     * If the chain ends in {@code .build()} and contains a {@code builder()} call
+     * directly on a class name, returns that class name.
+     *
+     * Example: {@code Address.builder().city("x").build()} → {@code "Address"}
+     */
+    private String extractBuilderRootClass(MethodCallExpr mc) {
+        // Walk inward through the scope chain looking for builder()
+        Expression current = mc;
+        while (current instanceof MethodCallExpr inner) {
+            if (inner.getNameAsString().equals("builder") && inner.getScope().isPresent()) {
+                Expression root = inner.getScope().get();
+                if (root instanceof NameExpr ne) {
+                    String n = ne.getNameAsString();
+                    if (!n.isEmpty() && Character.isUpperCase(n.charAt(0))) return n;
+                }
+            }
+            current = inner.getScope().orElse(null);
+        }
+        return null;
     }
     
     // -------------------------------------------------------------------------
