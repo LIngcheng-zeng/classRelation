@@ -20,20 +20,17 @@ flowchart LR
     User -.->|"AE: User.name ≡ Employee.lastName"| Employee:::writeRel
     User -.->|"PD: User.name ≡ Employee.lastName"| Employee:::writeRel
     User -.->|"PD: User.id ≡ Invoice.buyerId"| Invoice:::writeRel
-    OrderDTO -.->|"PD: OrderDTO.holds ≡ Order.held"| Order:::writeRel
-    UserOrderDTO -.->|"PD: UserOrderDTO.holds ≡ OrderDTO.held"| OrderDTO:::writeRel
-    UserOrderDTO -.->|"PD: UserOrderDTO.holds ≡ User.held"| User:::writeRel
+    OrderDTO -.->|"has"| Order:::writeRel
+    UserOrderDTO -.->|"has"| OrderDTO:::writeRel
+    UserOrderDTO -.->|"has"| User:::writeRel
     User -.->|"PD: User.phone ≡ Account.fullMobile"| Account:::writeRel
     User -.->|"PD: User.id ≡ Account.userId"| Account:::writeRel
     Order -.->|"PD: Order.city ≡ Address.city"| Address:::writeRel
     Order -.->|"PD: Order.userId ≡ VipUser.id"| VipUser:::writeRel
     Order -.->|"PD: Order.orderId ≡ Invoice.refOrderId"| Invoice:::writeRel
     VipUser -.->|"extends"| User:::inheritRel
-    __derived__ ==>|"PD: format(User.id, User.phone) ≡ VipUser.id"| VipUser:::derivedRel
-    __derived__ ==>|"PD: User.id ≡ VipUser.id"| VipUser:::derivedRel
     classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
     classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
-    classDef derivedRel stroke:#7b1fa2,stroke-width:3px,color:#7b1fa2
     classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
 ```
 

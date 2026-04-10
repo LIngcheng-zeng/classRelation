@@ -100,7 +100,17 @@ public class MermaidRenderer {
             }
 
             for (FieldMapping m : rel.mappings()) {
+                // Skip transitive closure mappings in Mermaid diagram
+                if (m.mode() == org.example.model.MappingMode.TRANSITIVE_CLOSURE) {
+                    continue;
+                }
+                
                 String label = buildLabel(m, isSelf);
+                
+                // Simplify composition/holding relationship labels to "has"
+                if (label.contains("holds") && label.contains("held")) {
+                    label = "has";
+                }
                 
                 // Choose arrow style and color based on mapping mode
                 String edgeDef = switch (m.mode()) {
@@ -108,8 +118,8 @@ public class MermaidRenderer {
                         "    " + src + " -->|\"" + label + "\"| " + tgt + ":::readRel";  // Blue
                     case WRITE_ASSIGNMENT -> 
                         "    " + src + " -.->|\"" + label + "\"| " + tgt + ":::writeRel";  // Orange
-                    case TRANSITIVE_CLOSURE -> 
-                        "    " + src + " ==>|\"" + label + "\"| " + tgt + ":::derivedRel";  // Purple
+                    default -> 
+                        "    " + src + " -->|\"" + label + "\"| " + tgt;  // Default
                 };
                 drawnEdges.add(edgeDef);
             }
@@ -123,7 +133,6 @@ public class MermaidRenderer {
         // Define class styles for links
         sb.append("    classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2\n");      // Blue for READ
         sb.append("    classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00\n");     // Orange for WRITE
-        sb.append("    classDef derivedRel stroke:#7b1fa2,stroke-width:3px,color:#7b1fa2\n");   // Purple for DERIVED
         sb.append("    classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c\n");   // Green for INHERITANCE
         
         sb.append("```");
