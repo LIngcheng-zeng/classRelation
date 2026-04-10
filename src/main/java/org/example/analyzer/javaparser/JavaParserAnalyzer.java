@@ -52,10 +52,10 @@ public class JavaParserAnalyzer implements SourceAnalyzer {
     public List<FieldMapping> analyze(Path projectRoot, AnalysisContext ctx) {
         configureSymbolSolver(projectRoot);
 
-        TypeEnrichingDecorator decorator = new TypeEnrichingDecorator(ctx.fieldTypeMap);
+        // Scan files and build class-package map FIRST so classPackageMap is available for enrichment
+        List<Path> javaFiles = scanner.scan(projectRoot, ctx);
 
-        // Scan files and build class-package map
-        List<Path>         javaFiles = scanner.scan(projectRoot, ctx);
+        TypeEnrichingDecorator decorator = new TypeEnrichingDecorator(ctx.fieldTypeMap, ctx.classPackageMap);
         List<FieldMapping> mappings  = new ArrayList<>();
 
         for (Path file : javaFiles) {

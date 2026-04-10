@@ -166,9 +166,7 @@ class FieldRefExtractor {
             com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration declaringType = resolvedField.declaringType();
             if (declaringType != null && declaringType.isReferenceType()) {
                 String qualifiedName = declaringType.asReferenceType().getQualifiedName();
-                int dot = qualifiedName.lastIndexOf('.');
-                String className = dot >= 0 ? qualifiedName.substring(dot + 1) : qualifiedName;
-                refs.add(new FieldRef(className, fieldName));
+                refs.add(new FieldRef(qualifiedName, fieldName));
                 return;
             }
         } catch (Exception ignored) {
@@ -264,9 +262,7 @@ class FieldRefExtractor {
         try {
             ResolvedType resolvedType = scope.calculateResolvedType();
             if (resolvedType.isReferenceType()) {
-                String qualified = resolvedType.asReferenceType().getQualifiedName();
-                int dot = qualified.lastIndexOf('.');
-                return dot >= 0 ? qualified.substring(dot + 1) : qualified;
+                return resolvedType.asReferenceType().getQualifiedName();
             }
         } catch (Exception ignored) {}
 
@@ -280,8 +276,7 @@ class FieldRefExtractor {
                 ResolvedType type = mc.calculateResolvedType();
                 if (type.isReferenceType()) {
                     String qualified = type.asReferenceType().getQualifiedName();
-                    String className = ClassNameValidator.extractSimpleName(qualified);
-                    if (ClassNameValidator.isValidClassName(className)) return className;
+                    if (ClassNameValidator.isValidClassName(qualified)) return qualified;
                 }
             } catch (Exception ignored) {}
             
@@ -306,8 +301,7 @@ class FieldRefExtractor {
                                 for (var field : typeDecl.getDeclaredFields()) {
                                     if (field.getName().equals(fn)) {
                                         String fieldType = field.getType().describe();
-                                        String simpleType = ClassNameValidator.extractSimpleName(fieldType);
-                                        if (ClassNameValidator.isValidClassName(simpleType)) return simpleType;
+                                        if (ClassNameValidator.isValidClassName(fieldType)) return fieldType;
                                     }
                                 }
                             }
@@ -345,12 +339,10 @@ class FieldRefExtractor {
                     ResolvedType type = mc.calculateResolvedType();
                     if (type.isReferenceType()) {
                         String qualified = type.asReferenceType().getQualifiedName();
-                        int dot = qualified.lastIndexOf('.');
-                        String className = dot >= 0 ? qualified.substring(dot + 1) : qualified;
-                        if (ClassNameValidator.isValidClassName(className)) return className;
+                        if (ClassNameValidator.isValidClassName(qualified)) return qualified;
                     }
                 } catch (Exception ignored) {}
-                
+
                 // Fallback: look up field in receiver type
                 if (mc.getScope().isPresent()) {
                     try {
@@ -362,9 +354,8 @@ class FieldRefExtractor {
                             if (typeDecl != null) {
                                 for (var field : typeDecl.getDeclaredFields()) {
                                     if (field.getName().equals(fn)) {
-                                        String typeName = field.getType().describe();
-                                        String simple = ClassNameValidator.extractSimpleName(typeName);
-                                        if (ClassNameValidator.isValidClassName(simple)) return simple;
+                                        String fieldType = field.getType().describe();
+                                        if (ClassNameValidator.isValidClassName(fieldType)) return fieldType;
                                     }
                                 }
                             }

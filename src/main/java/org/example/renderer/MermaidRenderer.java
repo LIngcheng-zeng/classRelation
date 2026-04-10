@@ -30,7 +30,7 @@ public class MermaidRenderer {
         StringBuilder sb = new StringBuilder();
         for (Set<String> component : components) {
             List<ClassRelation> subset = relations.stream()
-                    .filter(r -> component.contains(r.sourceClass()) || component.contains(r.targetClass()))
+                    .filter(r -> component.contains(r.simpleSourceClass()) || component.contains(r.simpleTargetClass()))
                     .toList();
             sb.append(renderComponent(subset));
             sb.append("\n\n");
@@ -46,11 +46,10 @@ public class MermaidRenderer {
         Map<String, String> parent = new LinkedHashMap<>();
 
         for (ClassRelation rel : relations) {
-            parent.putIfAbsent(rel.sourceClass(), rel.sourceClass());
-            parent.putIfAbsent(rel.targetClass(), rel.targetClass());
-            // Self-loops do not merge two distinct nodes
-            if (!rel.sourceClass().equals(rel.targetClass())) {
-                union(parent, rel.sourceClass(), rel.targetClass());
+            parent.putIfAbsent(rel.simpleSourceClass(), rel.simpleSourceClass());
+            parent.putIfAbsent(rel.simpleTargetClass(), rel.simpleTargetClass());
+            if (!rel.simpleSourceClass().equals(rel.simpleTargetClass())) {
+                union(parent, rel.simpleSourceClass(), rel.simpleTargetClass());
             }
         }
 
@@ -86,15 +85,15 @@ public class MermaidRenderer {
         Set<String> drawnEdges = new LinkedHashSet<>();
 
         for (ClassRelation rel : relations) {
-            String  src    = sanitize(rel.sourceClass());
-            String  tgt    = sanitize(rel.targetClass());
+            String  src    = sanitize(rel.simpleSourceClass());
+            String  tgt    = sanitize(rel.simpleTargetClass());
             boolean isSelf = src.equals(tgt);
-            
+
             // Render inheritance relationship if present (green line)
             if (rel.inheritance() != null) {
                 ClassRelation.InheritanceInfo info = rel.inheritance();
-                String childClass = sanitize(info.childClass());
-                String parentClass = sanitize(info.parentClass());
+                String childClass  = sanitize(info.simpleChildClass());
+                String parentClass = sanitize(info.simpleParentClass());
                 String inheritEdge = "    " + childClass + " -.->|\"extends\"| " + parentClass;
                 drawnEdges.add(inheritEdge + ":::inheritRel");
             }

@@ -14,23 +14,24 @@ public final class ClassNameValidator {
     }
 
     /**
-     * Checks if a string looks like a valid class name.
-     * 
+     * Checks if a string looks like a valid class name (simple or fully-qualified).
+     *
      * Criteria:
      * - Not null or empty
-     * - Starts with uppercase letter
      * - Does not contain parentheses (not a method call)
-     * - Does not contain dots (not a qualified name or getter chain)
-     * 
+     * - The last segment (after last dot) starts with an uppercase letter
+     *
+     * Accepts both simple names ("OrderDO") and FQN ("com.example.model.OrderDO").
+     *
      * @param name the string to check
-     * @return true if it looks like a simple class name
+     * @return true if it looks like a valid class name
      */
     public static boolean isValidClassName(String name) {
-        return name != null
-                && !name.isEmpty()
-                && Character.isUpperCase(name.charAt(0))
-                && !name.contains("(")
-                && !name.contains(")");
+        if (name == null || name.isEmpty()) return false;
+        if (name.contains("(") || name.contains(")")) return false;
+        String lastSegment = extractSimpleName(name);
+        return lastSegment != null && !lastSegment.isEmpty()
+                && Character.isUpperCase(lastSegment.charAt(0));
     }
 
     /**

@@ -78,8 +78,8 @@ public class SpoonAnalyzer implements SourceAnalyzer {
             try {
                 spoon.reflect.reference.CtTypeReference<?> superclass = type.getSuperclass();
                 if (superclass != null && !superclass.getQualifiedName().equals("java.lang.Object")) {
-                    String childClass = type.getSimpleName();
-                    String parentClass = superclass.getSimpleName();
+                    String childClass = type.getQualifiedName();
+                    String parentClass = superclass.getQualifiedName();
                     
                     // Collect inherited fields (fields declared in parent class)
                     List<String> inheritedFields = new ArrayList<>();
@@ -118,13 +118,26 @@ public class SpoonAnalyzer implements SourceAnalyzer {
         return extractor.results();
     }
 
+    /**
+     * 构建并配置 Spoon Launcher，用于解析项目源代码。
+     *
+     * @param projectRoot 项目根目录路径
+     * @return 配置完成的 Launcher 实例，如果构建失败则返回 null
+     */
     private Launcher buildLauncher(Path projectRoot) {
         try {
             Launcher launcher = new Launcher();
             launcher.addInputResource(projectRoot.toString());
+
+            // 启用自动导入管理，打印代码时使用简单类名而非全限定名
             launcher.getEnvironment().setAutoImports(true);
-            launcher.getEnvironment().setNoClasspath(true);   // tolerate missing deps
+
+            // 允许缺失依赖的类路径模式，容忍外部库不存在的情况
+            launcher.getEnvironment().setNoClasspath(true);
+
+            // 设置 Java 语言合规级别为 Java 17
             launcher.getEnvironment().setComplianceLevel(17);
+
             launcher.buildModel();
             return launcher;
         } catch (Exception e) {

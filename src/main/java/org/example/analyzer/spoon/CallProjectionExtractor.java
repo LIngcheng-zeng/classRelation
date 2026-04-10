@@ -517,16 +517,16 @@ class CallProjectionExtractor {
      */
     private String resolveClassNameFromFieldRef(CtFieldRead<?> fr) {
         try {
-            // Direct approach: get the field's declaring type (skips chain calls)
             spoon.reflect.reference.CtTypeReference<?> declaringType = fr.getVariable().getDeclaringType();
             if (declaringType != null) {
-                String qualified = declaringType.getQualifiedName();
-                int dot = qualified.lastIndexOf('.');
-                return dot >= 0 ? qualified.substring(dot + 1) : qualified;
+                try {
+                    spoon.reflect.declaration.CtType<?> decl = declaringType.getTypeDeclaration();
+                    if (decl != null) return decl.getQualifiedName();
+                } catch (Exception ignored) {}
+                return declaringType.getQualifiedName();
             }
         } catch (Exception ignored) {}
-        
-        // Fallback: resolve from target expression
+
         return resolveClassName(fr.getTarget());
     }
 
@@ -549,24 +549,18 @@ class CallProjectionExtractor {
             try {
                 spoon.reflect.reference.CtTypeReference<?> returnType = inv.getExecutable().getType();
                 if (returnType != null) {
-                    String qualified = returnType.getQualifiedName();
-                    int dot = qualified.lastIndexOf('.');
-                    return dot >= 0 ? qualified.substring(dot + 1) : qualified;
+                    return returnType.getQualifiedName();
                 }
             } catch (Exception ignored) {}
         }
-        
+
         // Strategy 2: For monadic operations (map, flatMap, etc.) - extract generic type
         if (isMonadicMethod(inv)) {
             try {
-                // Try to get the generic type argument from Optional<T> or Stream<T>
                 spoon.reflect.reference.CtTypeReference<?> type = inv.getType();
                 if (type != null && type.getActualTypeArguments() != null && !type.getActualTypeArguments().isEmpty()) {
-                    // Get the first type argument (e.g., T from Optional<T>)
                     spoon.reflect.reference.CtTypeReference<?> typeArg = type.getActualTypeArguments().get(0);
-                    String qualified = typeArg.getQualifiedName();
-                    int dot = qualified.lastIndexOf('.');
-                    return dot >= 0 ? qualified.substring(dot + 1) : qualified;
+                    return typeArg.getQualifiedName();
                 }
             } catch (Exception ignored) {}
         }
@@ -604,46 +598,46 @@ class CallProjectionExtractor {
      * @return The field's type simple name, or null if not found
      */
     private String findFieldTypeInHierarchy(spoon.reflect.declaration.CtType<?> type, String fieldName) {
-        // Use a set to prevent infinite loops in case of circular inheritance
         Set<String> visitedTypes = new HashSet<>();
         spoon.reflect.declaration.CtType<?> currentType = type;
-        
+
         while (currentType != null && !visitedTypes.contains(currentType.getQualifiedName())) {
             visitedTypes.add(currentType.getQualifiedName());
-            
-            // Search in current type's fields
+
             for (CtField<?> field : currentType.getFields()) {
                 if (field.getSimpleName().equals(fieldName)) {
-                    String fieldType = field.getType().getQualifiedName();
-                    int dot = fieldType.lastIndexOf('.');
-                    return dot >= 0 ? fieldType.substring(dot + 1) : fieldType;
+                    // Prefer getTypeDeclaration() when available:
+                    // in noClasspath mode, getQualifiedName() on same-package types may return
+                    // only the simple name; getTypeDeclaration() resolves the actual CtType
+                    // (present for all source files parsed in the same model) and always gives FQN.
+                    try {
+                        spoon.reflect.declaration.CtType<?> typeDecl = field.getType().getTypeDeclaration();
+                        if (typeDecl != null) return typeDecl.getQualifiedName();
+                    } catch (Exception ignored) {}
+                    return field.getType().getQualifiedName();
                 }
             }
-            
-            // Move to superclass
+
             try {
                 spoon.reflect.reference.CtTypeReference<?> superClassRef = currentType.getSuperclass();
                 if (superClassRef == null) break;
-                
-                String superClassName = superClassRef.getSimpleName();
-                // Skip java.lang.Object
-                if ("Object".equals(superClassName)) break;
-                
-                // Find the superclass in the model
+                if ("java.lang.Object".equals(superClassRef.getQualifiedName())) break;
+
+                String superFqn = superClassRef.getQualifiedName();
                 spoon.reflect.declaration.CtType<?> superClass = null;
                 for (spoon.reflect.declaration.CtType<?> t : model.getAllTypes()) {
-                    if (t.getSimpleName().equals(superClassName)) {
+                    if (t.getQualifiedName().equals(superFqn)) {
                         superClass = t;
                         break;
                     }
                 }
                 currentType = superClass;
             } catch (Exception e) {
-                break; // Cannot resolve superclass
+                break;
             }
         }
-        
-        return null; // Field not found in hierarchy
+
+        return null;
     }
 
     /**
@@ -658,37 +652,30 @@ class CallProjectionExtractor {
         try {
             spoon.reflect.reference.CtTypeReference<?> returnType = inv.getExecutable().getType();
             if (returnType != null) {
-                String qualified = returnType.getQualifiedName();
-                int dot = qualified.lastIndexOf('.');
-                return dot >= 0 ? qualified.substring(dot + 1) : qualified;
+                return returnType.getQualifiedName();
             }
         } catch (Exception ignored) {}
 
         // Step 2: Try from method declaration (non-Lombok methods in source code)
         try {
             spoon.reflect.declaration.CtExecutable<?> decl = inv.getExecutable().getDeclaration();
-            if (decl != null && decl instanceof spoon.reflect.declaration.CtMethod<?>) {
-                spoon.reflect.reference.CtTypeReference<?> returnType = ((spoon.reflect.declaration.CtMethod<?>) decl).getType();
+            if (decl instanceof spoon.reflect.declaration.CtMethod<?> ctMethod) {
+                spoon.reflect.reference.CtTypeReference<?> returnType = ctMethod.getType();
                 if (returnType != null) {
-                    String qualified = returnType.getQualifiedName();
-                    int dot = qualified.lastIndexOf('.');
-                    return dot >= 0 ? qualified.substring(dot + 1) : qualified;
+                    return returnType.getQualifiedName();
                 }
             }
         } catch (Exception ignored) {}
 
-        // Step 3: Lombok fallback - resolve receiver class and find field by name (including inherited fields)
+        // Step 3: Lombok fallback — resolve receiver class (FQN) and find field by name
         try {
-            String rawName = inv.getExecutable().getSimpleName();
-            String fieldName = Character.toLowerCase(rawName.charAt(3)) + rawName.substring(4);
-            String receiverClass = resolveClassName(inv.getTarget());
-            
-            if (receiverClass != null && model != null) {
-                // Search for the field in the receiver class and its superclasses
+            String rawName    = inv.getExecutable().getSimpleName();
+            String fieldName  = Character.toLowerCase(rawName.charAt(3)) + rawName.substring(4);
+            String receiverFqn = resolveClassName(inv.getTarget());  // returns FQN after our change
+
+            if (receiverFqn != null && model != null) {
                 for (spoon.reflect.declaration.CtType<?> type : model.getAllTypes()) {
-                    String typeName = type.getSimpleName();
-                    if (typeName.equals(receiverClass)) {
-                        // Search in the class itself
+                    if (type.getQualifiedName().equals(receiverFqn)) {
                         String fieldType = findFieldTypeInHierarchy(type, fieldName);
                         if (fieldType != null) return fieldType;
                     }
@@ -700,9 +687,7 @@ class CallProjectionExtractor {
         try {
             spoon.reflect.reference.CtTypeReference<?> type = inv.getType();
             if (type != null) {
-                String qualified = type.getQualifiedName();
-                int dot = qualified.lastIndexOf('.');
-                return dot >= 0 ? qualified.substring(dot + 1) : qualified;
+                return type.getQualifiedName();
             }
         } catch (Exception ignored) {}
 
@@ -760,18 +745,21 @@ class CallProjectionExtractor {
         try {
             spoon.reflect.reference.CtTypeReference<?> typeRef = target.getType();
             if (typeRef != null) {
-                // For generic types like List<User>, try to extract the type argument
+                // For generic types like List<User>, prefer the type argument
                 if (typeRef.getActualTypeArguments() != null && !typeRef.getActualTypeArguments().isEmpty()) {
-                    // Use the first type argument (e.g., User from List<User>)
                     spoon.reflect.reference.CtTypeReference<?> typeArg = typeRef.getActualTypeArguments().get(0);
-                    String qualified = typeArg.getQualifiedName();
-                    int dot = qualified.lastIndexOf('.');
-                    return dot >= 0 ? qualified.substring(dot + 1) : qualified;
+                    try {
+                        spoon.reflect.declaration.CtType<?> decl = typeArg.getTypeDeclaration();
+                        if (decl != null) return decl.getQualifiedName();
+                    } catch (Exception ignored) {}
+                    return typeArg.getQualifiedName();
                 }
-                // Fallback to the main type
-                String qualified = typeRef.getQualifiedName();
-                int dot = qualified.lastIndexOf('.');
-                return dot >= 0 ? qualified.substring(dot + 1) : qualified;
+                // Prefer getTypeDeclaration() to resolve same-package types to FQN
+                try {
+                    spoon.reflect.declaration.CtType<?> decl = typeRef.getTypeDeclaration();
+                    if (decl != null) return decl.getQualifiedName();
+                } catch (Exception ignored) {}
+                return typeRef.getQualifiedName();
             }
         } catch (Exception e) {
             return target.toString();

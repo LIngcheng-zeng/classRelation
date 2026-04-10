@@ -65,11 +65,11 @@ public class MarkdownDocumentRenderer {
             sb.append("| 子类 | 父类 | 继承字段 |\n");
             sb.append("|---|---|---|\n");
             for (ClassRelation.InheritanceInfo info : inheritances) {
-                String fields = info.inheritedFields().isEmpty() 
-                    ? "-" 
+                String fields = info.inheritedFields().isEmpty()
+                    ? "-"
                     : String.join(", ", info.inheritedFields());
-                sb.append("| `").append(info.childClass()).append("`")
-                  .append(" | `").append(info.parentClass()).append("`")
+                sb.append("| `").append(info.simpleChildClass()).append("`")
+                  .append(" | `").append(info.simpleParentClass()).append("`")
                   .append(" | `").append(fields).append("` |\n");
             }
             sb.append("\n");
@@ -79,6 +79,7 @@ public class MarkdownDocumentRenderer {
         List<ClassRelation> direct     = new java.util.ArrayList<>();
         List<ClassRelation> transitive = new java.util.ArrayList<>();
         for (ClassRelation rel : relations) {
+            if (rel.mappings().isEmpty()) continue;  // pure inheritance, rendered in inheritance section
             boolean isDerived = rel.mappings().stream()
                     .allMatch(m -> m.mode() == MappingMode.TRANSITIVE_CLOSURE);
             (isDerived ? transitive : direct).add(rel);
@@ -105,7 +106,8 @@ public class MarkdownDocumentRenderer {
                     .addAll(rel.mappings());
         }
         for (Map.Entry<String, List<FieldMapping>> entry : byTarget.entrySet()) {
-            sb.append("### ").append(entry.getKey()).append("\n\n");
+            String displayName = org.example.util.ClassNameValidator.extractSimpleName(entry.getKey());
+            sb.append("### ").append(displayName).append("\n\n");
             if (derived) {
                 sb.append("| 目标表字段 | 源表字段集合 | 推导路径 |\n");
                 sb.append("|---|---|---|\n");

@@ -5,26 +5,29 @@ import spoon.reflect.declaration.CtField;
 import spoon.reflect.declaration.CtType;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Type index built from a Spoon {@link CtModel}.
  *
- * Provides two lookups:
- *   1. fieldName  → Set&lt;className&gt; — which classes declare this field
- *                   (includes fields inherited via superclass chain)
- *   2. className + fieldName → fieldType simple name — for future use
+ * All keys use fully-qualified class names (FQN).
  *
- * Consumed by {@link org.example.analyzer.javaparser.TypeEnrichingDecorator}
- * to repair syntactically noisy class names in {@link org.example.model.FieldRef}s.
+ * Provides three lookups:
+ *   1. fieldName  → Set&lt;FQN&gt;        — which classes (by FQN) declare this field
+ *   2. FQN + fieldName → field type simple name
+ *   3. FQN → simple class name      — for display conversion
+ *
+ * Consumed by {@link org.example.analyzer.javaparser.TypeEnrichingDecorator}.
  */
 public class FieldTypeMap {
 
-    /** fieldName → set of simple class names that own the field (direct or inherited) */
+    /** fieldName → set of FQN class names that own the field (direct or inherited) */
     private final Map<String, Set<String>> fieldToClasses = new HashMap<>();
 
-    /** className → (fieldName → field type simple name) */
+    /** FQN → (fieldName → field type simple name) */
     private final Map<String, Map<String, String>> classFieldTypes = new HashMap<>();
+
+    /** FQN → simple class name (reverse lookup for display) */
+    private final Map<String, String> qualifiedToSimple = new HashMap<>();
 
     private FieldTypeMap() {}
 
@@ -41,15 +44,18 @@ public class FieldTypeMap {
     }
 
     private void indexType(CtType<?> type) {
-        String className = type.getSimpleName();
-        if (className == null || className.isEmpty()) return;
+        String qualifiedName = type.getQualifiedName();
+        String simpleName    = type.getSimpleName();
+        if (qualifiedName == null || qualifiedName.isEmpty()) return;
+
+        qualifiedToSimple.put(qualifiedName, simpleName);
 
         Map<String, String> fields = new LinkedHashMap<>();
         collectInheritedFields(type, fields, new HashSet<>());
 
-        classFieldTypes.put(className, fields);
+        classFieldTypes.put(qualifiedName, fields);
         for (String fieldName : fields.keySet()) {
-            fieldToClasses.computeIfAbsent(fieldName, k -> new LinkedHashSet<>()).add(className);
+            fieldToClasses.computeIfAbsent(fieldName, k -> new LinkedHashSet<>()).add(qualifiedName);
         }
     }
 
@@ -63,7 +69,6 @@ public class FieldTypeMap {
         if (qualName == null || visited.contains(qualName)) return;
         visited.add(qualName);
 
-        // Superclass first so subclass fields take priority on name collision
         var superRef = type.getSuperclass();
         if (superRef != null) {
             try {
@@ -73,8 +78,16 @@ public class FieldTypeMap {
 
         for (CtField<?> field : type.getFields()) {
             try {
-                String typeName = field.getType().getSimpleName();
-                fields.put(field.getSimpleName(), typeName);
+                // Prefer getTypeDeclaration() to resolve same-package types to FQN
+                String typeFqn;
+                try {
+                    CtType<?> typeDecl = field.getType().getTypeDeclaration();
+                    typeFqn = (typeDecl != null) ? typeDecl.getQualifiedName()
+                                                 : field.getType().getQualifiedName();
+                } catch (Exception ignored2) {
+                    typeFqn = field.getType().getQualifiedName();
+                }
+                fields.put(field.getSimpleName(), typeFqn);
             } catch (Exception ignored) {}
         }
     }
@@ -84,7 +97,7 @@ public class FieldTypeMap {
     // -------------------------------------------------------------------------
 
     /**
-     * Returns all class simple names that declare {@code fieldName}
+     * Returns all FQN class names that declare {@code fieldName}
      * (directly or via inheritance).
      */
     public Set<String> getClassesForField(String fieldName) {
@@ -92,18 +105,24 @@ public class FieldTypeMap {
     }
 
     /**
-     * Returns the declared field type simple name for the given class and field,
+     * Returns the declared field type simple name for the given FQN class and field,
      * or {@code null} if unknown.
      */
-    public String getFieldType(String className, String fieldName) {
-        Map<String, String> fields = classFieldTypes.get(className);
+    public String getFieldType(String qualifiedName, String fieldName) {
+        Map<String, String> fields = classFieldTypes.get(qualifiedName);
         return fields != null ? fields.get(fieldName) : null;
+    }
+
+    /**
+     * Returns the simple class name for a given FQN, or {@code null} if not indexed.
+     */
+    public String getSimpleName(String qualifiedName) {
+        return qualifiedToSimple.get(qualifiedName);
     }
 
     @Override
     public String toString() {
-        int totalFields = fieldToClasses.size();
-        int totalClasses = classFieldTypes.size();
-        return "FieldTypeMap{classes=" + totalClasses + ", distinctFields=" + totalFields + "}";
+        return "FieldTypeMap{classes=" + classFieldTypes.size()
+                + ", distinctFields=" + fieldToClasses.size() + "}";
     }
 }

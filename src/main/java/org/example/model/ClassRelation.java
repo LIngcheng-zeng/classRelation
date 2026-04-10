@@ -1,41 +1,38 @@
 package org.example.model;
 
+import org.example.util.ClassNameValidator;
+
 import java.util.List;
 
 /**
  * Aggregates all field mappings between a source class and a target class.
+ * sourceClass and targetClass store fully-qualified names (e.g. "com.example.model.OrderDO").
+ * Use simpleSourceClass() / simpleTargetClass() when rendering output.
  */
 public record ClassRelation(
-        String sourceClass,           // Simple name: "User"
-        String targetClass,           // Simple name: "Order"
-        String sourceQualifiedClass,  // Fully qualified: "org.example.model.User" (may be null)
-        String targetQualifiedClass,  // Fully qualified: "org.example.dto.Order" (may be null)
+        String sourceClass,   // Fully qualified: "com.example.model.OrderDO"
+        String targetClass,   // Fully qualified: "com.example.dto.InvoiceDO"
         List<FieldMapping> mappings,
-        InheritanceInfo inheritance   // Optional: inheritance relationship
+        InheritanceInfo inheritance
 ) {
     /**
      * Represents inheritance information between classes.
+     * childClass and parentClass store fully-qualified names.
      */
     public record InheritanceInfo(
-            String childClass,      // e.g., "VipUser"
-            String parentClass,     // e.g., "User"
-            List<String> inheritedFields  // Fields inherited from parent
-    ) {}
-    
-    // Backward-compatible constructor
+            String childClass,           // FQN, e.g. "com.example.model.VipUser"
+            String parentClass,          // FQN, e.g. "com.example.model.User"
+            List<String> inheritedFields
+    ) {
+        public String simpleChildClass()  { return ClassNameValidator.extractSimpleName(childClass); }
+        public String simpleParentClass() { return ClassNameValidator.extractSimpleName(parentClass); }
+    }
+
+    public String simpleSourceClass() { return ClassNameValidator.extractSimpleName(sourceClass); }
+    public String simpleTargetClass() { return ClassNameValidator.extractSimpleName(targetClass); }
+
+    // Backward-compatible constructors
     public ClassRelation(String sourceClass, String targetClass, List<FieldMapping> mappings) {
-        this(sourceClass, targetClass, null, null, mappings, null);
-    }
-    
-    // Constructor with inheritance info
-    public ClassRelation(String sourceClass, String targetClass, List<FieldMapping> mappings, InheritanceInfo inheritance) {
-        this(sourceClass, targetClass, null, null, mappings, inheritance);
-    }
-    
-    // Constructor with qualified names
-    public ClassRelation(String sourceClass, String targetClass, 
-                        String sourceQualifiedClass, String targetQualifiedClass,
-                        List<FieldMapping> mappings) {
-        this(sourceClass, targetClass, sourceQualifiedClass, targetQualifiedClass, mappings, null);
+        this(sourceClass, targetClass, mappings, null);
     }
 }

@@ -29,27 +29,6 @@ public class PackageFilter {
     }
 
     /**
-     * Checks if a Java file belongs to any of the target packages based on its path.
-     *
-     * @param javaFilePath path to the .java file
-     * @return true if the file is in a target package
-     */
-    public boolean matchesFile(Path javaFilePath) {
-        if (targetPackages.isEmpty()) {
-            return true; // No filter, include all
-        }
-
-        String filePath = javaFilePath.toString().replace('\\', '/');
-        
-        for (String pattern : targetPackages) {
-            if (filePathMatches(filePath, pattern)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
      * Checks if a class name belongs to any of the target packages.
      *
      * @param fullyQualifiedClassName e.g., "com.example.model.User"
@@ -92,34 +71,6 @@ public class PackageFilter {
         }
         
         return matchesClass(sourceClass) || matchesClass(targetClass);
-    }
-
-    /**
-     * Checks if a file path matches a package pattern.
-     * Converts package pattern to path pattern and checks if file is under that path.
-     */
-    private boolean filePathMatches(String filePath, String packagePattern) {
-        // Convert package pattern to path pattern
-        String pathPattern = packagePattern.replace('.', '/');
-        
-        if (pathPattern.endsWith("/**")) {
-            // Sub-package match: "com/example/**" matches "com/example/model/User.java"
-            String prefix = pathPattern.substring(0, pathPattern.length() - 3);
-            return filePath.contains("/" + prefix + "/");
-        } else if (pathPattern.endsWith("/*")) {
-            // One-level wildcard: "com/example/*" matches "com/example/model/User.java"
-            String prefix = pathPattern.substring(0, pathPattern.length() - 2);
-            if (!filePath.contains("/" + prefix + "/")) {
-                return false;
-            }
-            // Check that it's directly under the prefix (one level)
-            int prefixIndex = filePath.indexOf("/" + prefix + "/") + prefix.length() + 2;
-            String remainder = filePath.substring(prefixIndex);
-            return !remainder.contains("/") || remainder.indexOf('/') == remainder.lastIndexOf('/');
-        } else {
-            // Exact match: "com/example/model" matches "com/example/model/User.java"
-            return filePath.contains("/" + pathPattern + "/");
-        }
     }
 
     /**

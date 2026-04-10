@@ -144,11 +144,7 @@ public class TransitiveClosureExpander {
     private String formatSide(ExpressionSide side) {
         if (side == null || side.isEmpty()) return "<unknown>";
         List<String> fields = side.fields().stream()
-                .map(f -> {
-                    String className = f.className();
-                    String fieldName = f.fieldName();
-                    return (className != null ? className + "." : "") + fieldName;
-                })
+                .map(FieldRef::toString)   // uses simple class name for readability
                 .toList();
         return fields.size() == 1 ? fields.get(0) : "[" + String.join(", ", fields) + "]";
     }
