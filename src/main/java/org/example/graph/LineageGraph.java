@@ -3,6 +3,7 @@ package org.example.graph;
 import org.example.model.ClassRelation;
 import org.example.model.FieldMapping;
 import org.example.model.FieldRef;
+import org.example.spi.AnalysisContext;
 
 import java.util.*;
 
@@ -17,6 +18,9 @@ public class LineageGraph {
     
     // Inheritance information from AnalysisContext
     private Map<String, ClassRelation.InheritanceInfo> inheritanceMap = Collections.emptyMap();
+    
+    // Class name to fully qualified name mapping
+    private Map<String, String> classPackageMap = Collections.emptyMap();
 
     public void addMapping(FieldMapping mapping) {
         List<String> leftClasses  = distinctClasses(mapping.leftSide().fields());
@@ -36,6 +40,13 @@ public class LineageGraph {
      */
     public void setInheritanceMap(Map<String, ClassRelation.InheritanceInfo> inheritanceMap) {
         this.inheritanceMap = inheritanceMap != null ? inheritanceMap : Collections.emptyMap();
+    }
+    
+    /**
+     * Sets the class-package mapping for qualified name resolution.
+     */
+    public void setClassPackageMap(Map<String, String> classPackageMap) {
+        this.classPackageMap = classPackageMap != null ? classPackageMap : Collections.emptyMap();
     }
 
     public List<ClassRelation> buildRelations() {

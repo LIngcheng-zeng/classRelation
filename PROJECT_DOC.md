@@ -2,6 +2,8 @@
 
 > 版本：1.0-SNAPSHOT | 语言：Java 21 | 核心依赖：JavaParser 3.26.4 + Spoon 10.4.0
 
+> 📘 **相关文档**：[协议规范 (readeMe.md)](readeMe.md) | [使用指南 (USAGE.md)](USAGE.md)
+
 ---
 
 ## 1. 项目定位

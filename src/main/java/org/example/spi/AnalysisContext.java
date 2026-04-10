@@ -10,7 +10,7 @@ import java.util.Map;
  * during a single analysis run.
  *
  * Execution order contract (enforced by {@link org.example.analyzer.LineageAnalyzer}):
- *   1. SpoonAnalyzer runs first  — builds and populates {@link #fieldTypeMap} and {@link #inheritanceMap}
+ *   1. SpoonAnalyzer runs first  — builds and populates {@link #fieldTypeMap}, {@link #inheritanceMap}, and {@link #classPackageMap}
  *   2. JavaParserAnalyzer runs second — consumes {@link #fieldTypeMap}
  */
 public class AnalysisContext {
@@ -20,4 +20,7 @@ public class AnalysisContext {
     
     /** Inheritance relationships detected by SpoonAnalyzer; null until SpoonAnalyzer completes. */
     public volatile Map<String, ClassRelation.InheritanceInfo> inheritanceMap;
+    
+    /** Maps simple class name to fully qualified name (including package); built by JavaFileScanner. */
+    public volatile Map<String, String> classPackageMap;
 }

@@ -5,6 +5,7 @@ import com.github.javaparser.resolution.UnsolvedSymbolException;
 import com.github.javaparser.resolution.types.ResolvedType;
 import org.example.model.ExpressionSide;
 import org.example.model.FieldRef;
+import org.example.util.ClassNameValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -214,7 +215,7 @@ class FieldRefExtractor {
                     .orElse(null);
             
             // Only add if we successfully resolved a class name
-            if (className != null && looksLikeClassName(className)) {
+            if (ClassNameValidator.hasValidClass(className)) {
                 refs.add(new FieldRef(className, fieldName));
             }
             // If resolution failed, skip this field (conservative - avoids false positives)
@@ -253,7 +254,7 @@ class FieldRefExtractor {
                 if (aliased != null) {
                     visited.add(varName);
                     String resolved = resolveClassNameFromScope(aliased, aliasMap, visited);
-                    if (looksLikeClassName(resolved)) return resolved;
+                    if (ClassNameValidator.isValidClassName(resolved)) return resolved;
                     // Alias did not produce a usable class name — try SymbolSolver below
                 }
             }
@@ -279,8 +280,8 @@ class FieldRefExtractor {
                 ResolvedType type = mc.calculateResolvedType();
                 if (type.isReferenceType()) {
                     String qualified = type.asReferenceType().getQualifiedName();
-                    String className = extractSimpleClassName(qualified);
-                    if (looksLikeClassName(className)) return className;
+                    String className = ClassNameValidator.extractSimpleName(qualified);
+                    if (ClassNameValidator.isValidClassName(className)) return className;
                 }
             } catch (Exception ignored) {}
             
@@ -291,7 +292,7 @@ class FieldRefExtractor {
                 // Recursively resolve the receiver class (may itself be a getter chain)
                 String receiverClass = resolveClassNameFromScope(receiverExpr, aliasMap, visited);
                 
-                if (looksLikeClassName(receiverClass)) {
+                if (ClassNameValidator.isValidClassName(receiverClass)) {
                     // Now look up the field in the receiver class
                     try {
                         String raw = mc.getNameAsString();
@@ -305,8 +306,8 @@ class FieldRefExtractor {
                                 for (var field : typeDecl.getDeclaredFields()) {
                                     if (field.getName().equals(fn)) {
                                         String fieldType = field.getType().describe();
-                                        String simpleType = extractSimpleClassName(fieldType);
-                                        if (looksLikeClassName(simpleType)) return simpleType;
+                                        String simpleType = ClassNameValidator.extractSimpleName(fieldType);
+                                        if (ClassNameValidator.isValidClassName(simpleType)) return simpleType;
                                     }
                                 }
                             }
@@ -318,18 +319,6 @@ class FieldRefExtractor {
 
         // Step 3: heuristic fallback from scope text
         return extractScopeName(scope);
-    }
-
-    /**
-     * Returns true only when {@code name} looks like a bare Java class name:
-     * non-null, non-empty, starts with uppercase, no "(" and no ".".
-     */
-    private boolean looksLikeClassName(String name) {
-        return name != null
-                && !name.isEmpty()
-                && Character.isUpperCase(name.charAt(0))
-                && !name.contains("(")
-                && !name.contains(".");
     }
 
     private String extractScopeName(Expression scope) {
@@ -358,7 +347,7 @@ class FieldRefExtractor {
                         String qualified = type.asReferenceType().getQualifiedName();
                         int dot = qualified.lastIndexOf('.');
                         String className = dot >= 0 ? qualified.substring(dot + 1) : qualified;
-                        if (looksLikeClassName(className)) return className;
+                        if (ClassNameValidator.isValidClassName(className)) return className;
                     }
                 } catch (Exception ignored) {}
                 
@@ -374,9 +363,8 @@ class FieldRefExtractor {
                                 for (var field : typeDecl.getDeclaredFields()) {
                                     if (field.getName().equals(fn)) {
                                         String typeName = field.getType().describe();
-                                        int dot = typeName.lastIndexOf('.');
-                                        String simple = dot >= 0 ? typeName.substring(dot + 1) : typeName;
-                                        if (looksLikeClassName(simple)) return simple;
+                                        String simple = ClassNameValidator.extractSimpleName(typeName);
+                                        if (ClassNameValidator.isValidClassName(simple)) return simple;
                                     }
                                 }
                             }
@@ -480,18 +468,5 @@ class FieldRefExtractor {
         }
         
         return methodName + "()";
-    }
-    
-    // -------------------------------------------------------------------------
-    // Helper methods
-    // -------------------------------------------------------------------------
-    
-    /**
-     * Extracts simple class name from qualified name.
-     */
-    private String extractSimpleClassName(String qualifiedName) {
-        if (qualifiedName == null) return null;
-        int dot = qualifiedName.lastIndexOf('.');
-        return dot >= 0 ? qualifiedName.substring(dot + 1) : qualifiedName;
     }
 }

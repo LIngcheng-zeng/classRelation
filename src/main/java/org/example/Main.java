@@ -3,6 +3,7 @@ package org.example;
 import org.example.analyzer.LineageAnalyzer;
 import org.example.model.ClassRelation;
 import org.example.renderer.MarkdownDocumentRenderer;
+import org.example.util.PackageFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,19 +12,46 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class Main {
 
     private static final Logger log = LoggerFactory.getLogger(Main.class);
 
     public static void main(String[] args) {
-        if (args.length < 1) {
-            System.err.println("Usage: java -jar classRelation.jar <project-root-path>");
+        // Parse command-line arguments
+        Path projectRoot = null;
+        List<String> targetPackages = new ArrayList<>();
+        boolean includeTransitive = true; // Default: include relations where at least one side matches
+
+        for (int i = 0; i < args.length; i++) {
+            if (args[i].equals("--package") || args[i].equals("-p")) {
+                if (i + 1 < args.length) {
+                    targetPackages.add(args[++i]);
+                } else {
+                    System.err.println("Error: --package requires a value");
+                    System.exit(1);
+                }
+            } else if (args[i].equals("--strict")) {
+                includeTransitive = false; // Only include relations where BOTH sides match
+            } else if (projectRoot == null) {
+                projectRoot = Paths.get(args[i]).toAbsolutePath().normalize();
+            } else {
+                System.err.println("Error: unexpected argument: " + args[i]);
+                System.exit(1);
+            }
+        }
+
+        if (projectRoot == null) {
+            System.err.println("Usage: java -jar classRelation.jar <project-root-path> [--package <pkg>] [--strict]");
+            System.err.println("  --package, -p <pkg>: Filter to show only relations involving specified package(s)");
+            System.err.println("                     Supports: com.example, com.example.*, com.example.**");
+            System.err.println("  --strict: Only include relations where BOTH source and target are in target packages");
             System.exit(1);
         }
 
-        Path projectRoot = Paths.get(args[0]).toAbsolutePath().normalize();
         if (!projectRoot.toFile().isDirectory()) {
             System.err.println("Error: path is not a directory: " + projectRoot);
             System.exit(1);
@@ -31,24 +59,52 @@ public class Main {
 
         String projectName = projectRoot.getFileName().toString();
         log.info("Analyzing project: " + projectRoot);
+        if (!targetPackages.isEmpty()) {
+            log.info("Package filter: {} (mode: {})", 
+                    targetPackages, includeTransitive ? "transitive" : "strict");
+        }
 
         try {
             LineageAnalyzer analyzer = new LineageAnalyzer();
-            List<ClassRelation> relations = analyzer.analyze(projectRoot);
+            List<ClassRelation> allRelations = analyzer.analyze(projectRoot);
 
-            if (relations.isEmpty()) {
+            // Apply package filter if specified
+            List<ClassRelation> filteredRelations = allRelations;
+            if (!targetPackages.isEmpty()) {
+                PackageFilter filter = new PackageFilter(targetPackages);
+                
+                // Get class-package map from the analyzer's context
+                // We need to access it through a different approach since LineageAnalyzer doesn't expose it
+                // For now, we'll build it on-the-fly by scanning the project again
+                Map<String, String> classPackageMap = buildClassPackageMap(projectRoot);
+                
+                filteredRelations = allRelations.stream()
+                        .filter(rel -> {
+                            // Look up fully qualified names
+                            String sourceQualified = classPackageMap.getOrDefault(rel.sourceClass(), rel.sourceClass());
+                            String targetQualified = classPackageMap.getOrDefault(rel.targetClass(), rel.targetClass());
+                            
+                            return filter.shouldIncludeRelation(sourceQualified, targetQualified);
+                        })
+                        .toList();
+                
+                log.info("Filtered: {} -> {} relations", allRelations.size(), filteredRelations.size());
+            }
+
+            if (filteredRelations.isEmpty()) {
                 System.out.println("No field associations detected in: " + projectName);
                 return;
             }
 
-            String content = new MarkdownDocumentRenderer().render(projectName, relations);
+            String content = new MarkdownDocumentRenderer().render(projectName, filteredRelations);
 
-            Path outputFile = Paths.get(projectName + ".md");
+            String suffix = !targetPackages.isEmpty() ? "-filtered" : "";
+            Path outputFile = Paths.get(projectName + suffix + ".md");
             Files.writeString(outputFile, content, StandardCharsets.UTF_8);
 
             System.out.println("Report written to: " + outputFile.toAbsolutePath());
-            System.out.println("  " + relations.size() + " class relation(s), "
-                    + relations.stream().mapToLong(r -> r.mappings().size()).sum() + " mapping(s) found.");
+            System.out.println("  " + filteredRelations.size() + " class relation(s), "
+                    + filteredRelations.stream().mapToLong(r -> r.mappings().size()).sum() + " mapping(s) found.");
 
         } catch (IOException e) {
             System.err.println("Failed to write report: " + e.getMessage());
@@ -59,5 +115,42 @@ public class Main {
             log.error("Analysis failed", e);
             System.exit(2);
         }
+    }
+    
+    /**
+     * Builds a map of simple class name to fully qualified name by scanning Java files.
+     */
+    private static Map<String, String> buildClassPackageMap(Path projectRoot) {
+        Map<String, String> classPackageMap = new java.util.HashMap<>();
+        
+        try {
+            java.nio.file.Files.walk(projectRoot)
+                    .filter(path -> path.toString().endsWith(".java"))
+                    .forEach(javaFile -> {
+                        try {
+                            com.github.javaparser.ParseResult<com.github.javaparser.ast.CompilationUnit> result = 
+                                new com.github.javaparser.JavaParser().parse(javaFile);
+                            if (result.isSuccessful() && result.getResult().isPresent()) {
+                                com.github.javaparser.ast.CompilationUnit cu = result.getResult().get();
+                                
+                                String packageName = cu.getPackageDeclaration()
+                                        .map(pkg -> pkg.getNameAsString())
+                                        .orElse("");
+                                
+                                cu.getTypes().forEach(type -> {
+                                    String className = type.getNameAsString();
+                                    String qualifiedName = packageName.isEmpty() ? className : packageName + "." + className;
+                                    classPackageMap.put(className, qualifiedName);
+                                });
+                            }
+                        } catch (Exception e) {
+                            // Ignore parse errors
+                        }
+                    });
+        } catch (Exception e) {
+            log.warn("Failed to build class-package map: {}", e.getMessage());
+        }
+        
+        return classPackageMap;
     }
 }

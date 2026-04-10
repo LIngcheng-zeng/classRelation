@@ -6,10 +6,12 @@ import java.util.List;
  * Aggregates all field mappings between a source class and a target class.
  */
 public record ClassRelation(
-        String sourceClass,
-        String targetClass,
+        String sourceClass,           // Simple name: "User"
+        String targetClass,           // Simple name: "Order"
+        String sourceQualifiedClass,  // Fully qualified: "org.example.model.User" (may be null)
+        String targetQualifiedClass,  // Fully qualified: "org.example.dto.Order" (may be null)
         List<FieldMapping> mappings,
-        InheritanceInfo inheritance  // Optional: inheritance relationship
+        InheritanceInfo inheritance   // Optional: inheritance relationship
 ) {
     /**
      * Represents inheritance information between classes.
@@ -22,6 +24,18 @@ public record ClassRelation(
     
     // Backward-compatible constructor
     public ClassRelation(String sourceClass, String targetClass, List<FieldMapping> mappings) {
-        this(sourceClass, targetClass, mappings, null);
+        this(sourceClass, targetClass, null, null, mappings, null);
+    }
+    
+    // Constructor with inheritance info
+    public ClassRelation(String sourceClass, String targetClass, List<FieldMapping> mappings, InheritanceInfo inheritance) {
+        this(sourceClass, targetClass, null, null, mappings, inheritance);
+    }
+    
+    // Constructor with qualified names
+    public ClassRelation(String sourceClass, String targetClass, 
+                        String sourceQualifiedClass, String targetQualifiedClass,
+                        List<FieldMapping> mappings) {
+        this(sourceClass, targetClass, sourceQualifiedClass, targetQualifiedClass, mappings, null);
     }
 }

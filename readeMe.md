@@ -1,5 +1,7 @@
 # 元属性逻辑关联协议汇总 (MALM Protocol Summary)
 
+> 📘 **相关文档**：[技术实现 (PROJECT_DOC.md)](PROJECT_DOC.md) | [使用指南 (USAGE.md)](USAGE.md)
+
 ## 1. 核心定义 (Definition)
 
 **元属性逻辑关联**是指类与类之间，基于属性值的**等值判定（Predicate）**或**状态同步（Assignment）**而建立的逻辑纽带。其本质是描述数据在不同对象维度下如何达成"语义对等"的规则集合。
@@ -382,3 +384,31 @@ account.mobileKey = user.phone.trim().toLowerCase();
 | **反射调用分析** | 有限的反射模式识别（如 `getField("name").get(obj)`） | P3 |
 | **匿名内部类增强** | 更完善的匿名类/局部类中的字段访问追踪 | P2 |
 | **复杂泛型嵌套** | 多层泛型嵌套（如 `Map<String, List<User>>`）的精确解析 | P3 |
+
+---
+
+## 11. 使用方法
+
+详细的使用说明和命令行参数请参考 [**USAGE.md**](USAGE.md)。
+
+### 快速开始
+
+```bash
+# 构建项目
+mvn clean package -DskipTests
+
+# 分析项目
+java -jar target/classRelation.jar <project-root-path>
+
+# 包过滤示例
+java -jar target/classRelation.jar /path/to/project --package org.example.model
+```
+
+更多用法详见 [USAGE.md](USAGE.md)，包括：
+- 完整的命令行参数说明
+- 包过滤功能详解
+- 输出文件说明
+- 常见场景示例
+- 常见问题解答（FAQ）
+
+---

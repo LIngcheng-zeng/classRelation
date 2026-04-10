@@ -54,7 +54,8 @@ public class JavaParserAnalyzer implements SourceAnalyzer {
 
         TypeEnrichingDecorator decorator = new TypeEnrichingDecorator(ctx.fieldTypeMap);
 
-        List<Path>         javaFiles = scanner.scan(projectRoot);
+        // Scan files and build class-package map
+        List<Path>         javaFiles = scanner.scan(projectRoot, ctx);
         List<FieldMapping> mappings  = new ArrayList<>();
 
         for (Path file : javaFiles) {
