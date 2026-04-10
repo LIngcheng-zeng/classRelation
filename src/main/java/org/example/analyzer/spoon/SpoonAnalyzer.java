@@ -1,6 +1,7 @@
 package org.example.analyzer.spoon;
 
 import org.example.model.FieldMapping;
+import org.example.spi.AnalysisContext;
 import org.example.spi.SourceAnalyzer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,10 +36,20 @@ public class SpoonAnalyzer implements SourceAnalyzer {
 
     @Override
     public List<FieldMapping> analyze(Path projectRoot) {
+        return analyze(projectRoot, new AnalysisContext());
+    }
+
+    @Override
+    public List<FieldMapping> analyze(Path projectRoot, AnalysisContext ctx) {
         Launcher launcher = buildLauncher(projectRoot);
         if (launcher == null) return List.of();
 
         CtModel model = launcher.getModel();
+
+        // Build and publish FieldTypeMap so JavaParserAnalyzer can consume it
+        ctx.fieldTypeMap = FieldTypeMap.build(model);
+        log.info("SpoonAnalyzer built {}", ctx.fieldTypeMap);
+
         List<FieldMapping> mappings = new ArrayList<>();
 
         for (CtType<?> type : model.getAllTypes()) {

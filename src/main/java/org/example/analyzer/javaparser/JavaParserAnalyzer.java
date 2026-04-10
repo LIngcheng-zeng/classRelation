@@ -9,6 +9,7 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeS
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
 import org.example.classifier.RelationshipClassifier;
 import org.example.model.FieldMapping;
+import org.example.spi.AnalysisContext;
 import org.example.spi.SourceAnalyzer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,7 +45,14 @@ public class JavaParserAnalyzer implements SourceAnalyzer {
 
     @Override
     public List<FieldMapping> analyze(Path projectRoot) {
+        return analyze(projectRoot, new AnalysisContext());
+    }
+
+    @Override
+    public List<FieldMapping> analyze(Path projectRoot, AnalysisContext ctx) {
         configureSymbolSolver(projectRoot);
+
+        TypeEnrichingDecorator decorator = new TypeEnrichingDecorator(ctx.fieldTypeMap);
 
         List<Path>         javaFiles = scanner.scan(projectRoot);
         List<FieldMapping> mappings  = new ArrayList<>();
@@ -54,7 +62,8 @@ public class JavaParserAnalyzer implements SourceAnalyzer {
                 CompilationUnit cu       = StaticJavaParser.parse(file);
                 String          fileName = file.getFileName().toString();
                 for (MappingExtractor me : extractors) {
-                    mappings.addAll(me.extract(cu, fileName, extractor, classifier));
+                    List<FieldMapping> raw = me.extract(cu, fileName, extractor, classifier);
+                    mappings.addAll(decorator.enrich(raw));
                 }
             } catch (IOException e) {
                 log.warn("Failed to parse file: {} — {}", file, e.getMessage());

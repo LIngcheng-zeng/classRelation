@@ -264,6 +264,34 @@ class FieldRefExtractor {
             }
         } catch (Exception ignored) {}
 
+        // Step 2.5: getter chain with receiver-type field lookup.
+        // Handles a.getB().setFoo() where getB() is Lombok-generated:
+        //   - resolve a's type via SymbolSolver → A
+        //   - look up field "b" in A's declaration → type B
+        //   - return "B"
+        // Limited to one hop from a directly-resolvable receiver; deeper Lombok chains
+        // are covered by the Spoon inter-procedural path.
+        if (scope instanceof MethodCallExpr mc && isGetter(mc) && mc.getScope().isPresent()) {
+            try {
+                String raw = mc.getNameAsString();                         // "getB"
+                String fn  = Character.toLowerCase(raw.charAt(3)) + raw.substring(4);  // "b"
+                ResolvedType receiverType = mc.getScope().get().calculateResolvedType();
+                if (receiverType.isReferenceType()) {
+                    var typeDecl = receiverType.asReferenceType().getTypeDeclaration().orElse(null);
+                    if (typeDecl != null) {
+                        for (var field : typeDecl.getDeclaredFields()) {
+                            if (field.getName().equals(fn)) {
+                                String typeName = field.getType().describe();
+                                int dot = typeName.lastIndexOf('.');
+                                String simple = dot >= 0 ? typeName.substring(dot + 1) : typeName;
+                                if (looksLikeClassName(simple)) return simple;
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+
         // Step 3: heuristic fallback from scope text
         return extractScopeName(scope);
     }

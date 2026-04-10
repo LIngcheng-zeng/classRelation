@@ -4,9 +4,9 @@
 
 | 项目 | 数值 |
 |---|---|
-| 涉及类关系对（直接） | 9 |
+| 涉及类关系对（直接） | 10 |
 | 探测型关联（READ） | 2 |
-| 动作型关联（WRITE） | 11 |
+| 动作型关联（WRITE） | 12 |
 | 推导关联（传递闭包） | 0 |
 
 ## 关联图谱
@@ -23,6 +23,7 @@ flowchart LR
     UserOrderDTO -.->|"PD: UserOrderDTO.holds ≡ User.held"| User
     User -.->|"PD: User.phone ≡ Account.fullMobile"| Account
     User -.->|"PD: User.id ≡ Account.userId"| Account
+    Order -.->|"PD: Order.city ≡ Address.city"| Address
     Order -.->|"PD: Order.orderId ≡ Invoice.refOrderId"| Invoice
 ```
 
@@ -93,4 +94,11 @@ flowchart LR
 | | *new Account(userOrderDTO.getUser().getPhone(), userOrderDTO.getUser().getId())* | | | |
 | `Account.userId` | `User.id` | PARAMETERIZED | WRITE | `main(constructor-call)` |
 | | *new Account(userOrderDTO.getUser().getPhone(), userOrderDTO.getUser().getId())* | | | |
+
+### Address
+
+| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+|---|---|---|---|---|---|
+| `Address.city` | `Order.city` | PARAMETERIZED | WRITE | `main(builder)` |
+| | *Address.builder().city(orderDTO.getOrder().getCity())* | | | |
 

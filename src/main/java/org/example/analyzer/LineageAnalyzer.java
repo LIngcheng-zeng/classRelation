@@ -5,6 +5,7 @@ import org.example.analyzer.spoon.SpoonAnalyzer;
 import org.example.expander.TransitiveClosureExpander;
 import org.example.graph.LineageGraph;
 import org.example.model.ClassRelation;
+import org.example.spi.AnalysisContext;
 import org.example.spi.SourceAnalyzer;
 
 import java.nio.file.Path;
@@ -39,9 +40,10 @@ public class LineageAnalyzer {
     }
 
     public List<ClassRelation> analyze(Path projectRoot) {
-        LineageGraph graph = new LineageGraph();
+        AnalysisContext ctx   = new AnalysisContext();
+        LineageGraph    graph = new LineageGraph();
         for (SourceAnalyzer analyzer : analyzers) {
-            analyzer.analyze(projectRoot).forEach(graph::addMapping);
+            analyzer.analyze(projectRoot, ctx).forEach(graph::addMapping);
         }
         return expander.expand(graph.buildRelations());
     }

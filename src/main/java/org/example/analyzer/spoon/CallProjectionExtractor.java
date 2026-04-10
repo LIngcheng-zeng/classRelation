@@ -68,10 +68,21 @@ class CallProjectionExtractor {
         
         // Extract composition/aggregation relationships (A holds reference to B)
         extractCompositionRelationships(method, aliasMap);
-        
+
         // Extract constructor calls directly from this method
         extractConstructorCalls(method, aliasMap);
-        
+
+        // Extract builder chain field mappings: Address.builder().city(x).build() → Address.city = x
+        String builderLocation = method.getSimpleName() + "(builder)";
+        for (CtExpression<?> aliasedExpr : aliasMap.values()) {
+            if (isBuilderChain(aliasedExpr)) {
+                String targetClass = extractBuilderTargetClass(aliasedExpr);
+                if (targetClass != null) {
+                    walkBuilderChain(aliasedExpr, targetClass, aliasMap, builderLocation);
+                }
+            }
+        }
+
         // Process inter-procedural calls
         processInvocations(method, aliasMap, 0, visited);
     }
@@ -729,6 +740,96 @@ class CallProjectionExtractor {
         
         // Final fallback if getType() returns null
         return target.toString();
+    }
+
+    // -------------------------------------------------------------------------
+    // Builder chain extraction
+    // -------------------------------------------------------------------------
+
+    /** Returns true when {@code expr} is a builder terminal: the outermost call is {@code .build()}. */
+    private boolean isBuilderChain(CtExpression<?> expr) {
+        return expr instanceof CtInvocation<?> inv
+                && inv.getExecutable().getSimpleName().equals("build");
+    }
+
+    /**
+     * Walks inward through a builder chain to find the {@code builder()} call and returns
+     * the class name it was invoked on (e.g., {@code Address.builder()} → {@code "Address"}).
+     */
+    private String extractBuilderTargetClass(CtExpression<?> expr) {
+        CtExpression<?> current = expr;
+        while (current instanceof CtInvocation<?> inv) {
+            if (inv.getExecutable().getSimpleName().equals("builder")
+                    && inv.getTarget() != null) {
+                CtExpression<?> builderTarget = inv.getTarget();
+                // CtTypeAccess: Address.builder() — use getAccessedType(), not getType()
+                if (builderTarget instanceof spoon.reflect.code.CtTypeAccess<?> ta) {
+                    try {
+                        String qualified = ta.getAccessedType().getQualifiedName();
+                        int dot = qualified.lastIndexOf('.');
+                        return dot >= 0 ? qualified.substring(dot + 1) : qualified;
+                    } catch (Exception ignored) {}
+                }
+                // Generic fallback
+                String raw = builderTarget.toString();
+                if (!raw.isEmpty() && Character.isUpperCase(raw.charAt(0))
+                        && !raw.contains("(") && !raw.contains(".")) return raw;
+            }
+            current = inv.getTarget();
+        }
+        // Last resort: return type of the build() call itself
+        if (expr instanceof CtInvocation<?> inv) {
+            try {
+                String qualified = inv.getType().getQualifiedName();
+                int dot = qualified.lastIndexOf('.');
+                String simple = dot >= 0 ? qualified.substring(dot + 1) : qualified;
+                if (!simple.isEmpty() && !simple.contains("<")) return simple;
+            } catch (Exception ignored) {}
+        }
+        return null;
+    }
+
+    /**
+     * Recursively walks a builder call chain extracting field mappings for each
+     * intermediate setter-style call (i.e., every call that is neither {@code builder()}
+     * nor {@code build()}).
+     *
+     * Example: {@code Address.builder().city(order.getCity()).zip(order.getZip()).build()}
+     *   → {@code Order.city → Address.city}
+     *   → {@code Order.zip  → Address.zip}
+     */
+    private void walkBuilderChain(CtExpression<?> expr, String targetClass,
+                                   Map<String, CtExpression<?>> aliasMap, String location) {
+        if (!(expr instanceof CtInvocation<?> inv)) return;
+
+        String methodName = inv.getExecutable().getSimpleName();
+
+        // Terminal or factory — recurse into target but don't emit a mapping
+        if (methodName.equals("build") || methodName.equals("builder")) {
+            walkBuilderChain(inv.getTarget(), targetClass, aliasMap, location);
+            return;
+        }
+
+        // Intermediate setter: .fieldName(value) → targetClass.fieldName = value
+        if (!inv.getArguments().isEmpty()) {
+            CtExpression<?> arg = inv.getArguments().get(0);
+            ExpressionSide sourceSide = extractSourceSide(arg, aliasMap);
+            if (!sourceSide.isEmpty()) {
+                FieldRef sinkRef = new FieldRef(targetClass, methodName);
+                ExpressionSide sinkSide = new ExpressionSide(List.of(sinkRef), "direct");
+                if (isValidPair(sourceSide, sinkSide)) {
+                    results.add(new FieldMapping(
+                            sourceSide, sinkSide,
+                            MappingType.PARAMETERIZED,
+                            MappingMode.WRITE_ASSIGNMENT,
+                            inv.toString(),
+                            location));
+                }
+            }
+        }
+
+        // Continue walking inward
+        walkBuilderChain(inv.getTarget(), targetClass, aliasMap, location);
     }
 
     private boolean isSetter(CtInvocation<?> inv) {

@@ -16,6 +16,9 @@ import java.util.List;
  * implementations — adding a new backend (e.g. Spoon) requires only:
  *   1. Creating a class that implements this interface
  *   2. Registering it in {@code LineageAnalyzer}'s constructor
+ *
+ * Context-aware implementations may override {@link #analyze(Path, AnalysisContext)}
+ * to read from or write to the shared {@link AnalysisContext}.
  */
 public interface SourceAnalyzer {
 
@@ -27,4 +30,16 @@ public interface SourceAnalyzer {
      * @return discovered field mappings; never null, may be empty
      */
     List<FieldMapping> analyze(Path projectRoot);
+
+    /**
+     * Context-aware variant. Default delegates to {@link #analyze(Path)}.
+     * Override to read from or populate {@link AnalysisContext}.
+     *
+     * @param projectRoot root directory of the project to analyze
+     * @param ctx         shared analysis context; never null
+     * @return discovered field mappings; never null, may be empty
+     */
+    default List<FieldMapping> analyze(Path projectRoot, AnalysisContext ctx) {
+        return analyze(projectRoot);
+    }
 }
