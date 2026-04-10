@@ -49,6 +49,10 @@ public class SpoonAnalyzer implements SourceAnalyzer {
         // Build and publish FieldTypeMap so JavaParserAnalyzer can consume it
         ctx.fieldTypeMap = FieldTypeMap.build(model);
         log.info("SpoonAnalyzer built {}", ctx.fieldTypeMap);
+        
+        // Detect inheritance relationships
+        ctx.inheritanceMap = detectInheritance(model);
+        log.info("SpoonAnalyzer detected {} inheritance relationship(s)", ctx.inheritanceMap.size());
 
         List<FieldMapping> mappings = new ArrayList<>();
 
@@ -61,6 +65,46 @@ public class SpoonAnalyzer implements SourceAnalyzer {
 
         log.info("SpoonAnalyzer found " + mappings.size() + " inter-procedural mapping(s)");
         return mappings;
+    }
+    
+    /**
+     * Detects inheritance relationships in the model.
+     * Returns a map: childClassName -> InheritanceInfo
+     */
+    private Map<String, org.example.model.ClassRelation.InheritanceInfo> detectInheritance(CtModel model) {
+        Map<String, org.example.model.ClassRelation.InheritanceInfo> inheritanceMap = new java.util.HashMap<>();
+        
+        for (CtType<?> type : model.getAllTypes()) {
+            try {
+                spoon.reflect.reference.CtTypeReference<?> superclass = type.getSuperclass();
+                if (superclass != null && !superclass.getQualifiedName().equals("java.lang.Object")) {
+                    String childClass = type.getSimpleName();
+                    String parentClass = superclass.getSimpleName();
+                    
+                    // Collect inherited fields (fields declared in parent class)
+                    List<String> inheritedFields = new ArrayList<>();
+                    try {
+                        spoon.reflect.declaration.CtType<?> parentType = superclass.getDeclaration();
+                        if (parentType != null) {
+                            for (spoon.reflect.reference.CtFieldReference<?> fieldRef : parentType.getDeclaredFields()) {
+                                inheritedFields.add(fieldRef.getSimpleName());
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                    
+                    inheritanceMap.put(childClass, new org.example.model.ClassRelation.InheritanceInfo(
+                        childClass, parentClass, inheritedFields
+                    ));
+                    
+                    log.debug("Found inheritance: {} extends {} (fields: {})", 
+                             childClass, parentClass, inheritedFields);
+                }
+            } catch (Exception e) {
+                log.debug("Failed to detect inheritance for {}: {}", type.getSimpleName(), e.getMessage());
+            }
+        }
+        
+        return inheritanceMap;
     }
 
     // -------------------------------------------------------------------------

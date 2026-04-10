@@ -7,6 +7,7 @@ import org.example.model.MappingMode;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Renders lineage analysis results as a single Markdown document.
@@ -51,6 +52,28 @@ public class MarkdownDocumentRenderer {
         sb.append("| **AE** | Atomic Equality | 原子等值：单字段对单字段的直接映射 | `A.id ≡ B.userId` |\n");
         sb.append("| **CP** | Composite Projection | 投影组合：多字段组合或拼接后的映射 | `A.f1 + A.f2 ≡ B.full` |\n");
         sb.append("| **PD** | Parameterized / Derived | 参数化/派生：经过转换、归一化或依赖上下文的映射 | `A.code.toLowerCase() ≡ B.value` |\n\n");
+        
+        // Inheritance relationships section
+        List<ClassRelation.InheritanceInfo> inheritances = relations.stream()
+                .map(ClassRelation::inheritance)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        
+        if (!inheritances.isEmpty()) {
+            sb.append("### 继承关系\n\n");
+            sb.append("| 子类 | 父类 | 继承字段 |\n");
+            sb.append("|---|---|---|\n");
+            for (ClassRelation.InheritanceInfo info : inheritances) {
+                String fields = info.inheritedFields().isEmpty() 
+                    ? "-" 
+                    : String.join(", ", info.inheritedFields());
+                sb.append("| `").append(info.childClass()).append("`")
+                  .append(" | `").append(info.parentClass()).append("`")
+                  .append(" | `").append(fields).append("` |\n");
+            }
+            sb.append("\n");
+        }
 
         // Split relations into direct vs transitive
         List<ClassRelation> direct     = new java.util.ArrayList<>();

@@ -89,19 +89,43 @@ public class MermaidRenderer {
             String  src    = sanitize(rel.sourceClass());
             String  tgt    = sanitize(rel.targetClass());
             boolean isSelf = src.equals(tgt);
+            
+            // Render inheritance relationship if present (green line)
+            if (rel.inheritance() != null) {
+                ClassRelation.InheritanceInfo info = rel.inheritance();
+                String childClass = sanitize(info.childClass());
+                String parentClass = sanitize(info.parentClass());
+                String inheritEdge = "    " + childClass + " -.->|\"extends\"| " + parentClass;
+                drawnEdges.add(inheritEdge + ":::inheritRel");
+            }
 
             for (FieldMapping m : rel.mappings()) {
                 String label = buildLabel(m, isSelf);
-                String arrow = switch (m.mode()) {
-                    case WRITE_ASSIGNMENT   -> "-.->";
-                    case TRANSITIVE_CLOSURE -> "==>";
-                    default                -> "-->";
+                
+                // Choose arrow style and color based on mapping mode
+                String edgeDef = switch (m.mode()) {
+                    case READ_PREDICATE -> 
+                        "    " + src + " -->|\"" + label + "\"| " + tgt + ":::readRel";  // Blue
+                    case WRITE_ASSIGNMENT -> 
+                        "    " + src + " -.->|\"" + label + "\"| " + tgt + ":::writeRel";  // Orange
+                    case TRANSITIVE_CLOSURE -> 
+                        "    " + src + " ==>|\"" + label + "\"| " + tgt + ":::derivedRel";  // Purple
                 };
-                drawnEdges.add("    " + src + " " + arrow + "|\"" + label + "\"| " + tgt);
+                drawnEdges.add(edgeDef);
             }
         }
-
+        
+        // Define link styles (for edges)
+        sb.append("    linkStyle default stroke:#999,stroke-width:1px\n");
+        
         drawnEdges.forEach(e -> sb.append(e).append("\n"));
+        
+        // Define class styles for links
+        sb.append("    classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2\n");      // Blue for READ
+        sb.append("    classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00\n");     // Orange for WRITE
+        sb.append("    classDef derivedRel stroke:#7b1fa2,stroke-width:3px,color:#7b1fa2\n");   // Purple for DERIVED
+        sb.append("    classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c\n");   // Green for INHERITANCE
+        
         sb.append("```");
         return sb.toString();
     }

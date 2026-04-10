@@ -42,9 +42,16 @@ public class LineageAnalyzer {
     public List<ClassRelation> analyze(Path projectRoot) {
         AnalysisContext ctx   = new AnalysisContext();
         LineageGraph    graph = new LineageGraph();
+        
         for (SourceAnalyzer analyzer : analyzers) {
             analyzer.analyze(projectRoot, ctx).forEach(graph::addMapping);
         }
+        
+        // Pass inheritance information to the graph
+        if (ctx.inheritanceMap != null) {
+            graph.setInheritanceMap(ctx.inheritanceMap);
+        }
+        
         return expander.expand(graph.buildRelations());
     }
 }

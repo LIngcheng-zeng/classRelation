@@ -212,7 +212,12 @@ class FieldRefExtractor {
             String className = mc.getScope()
                     .map(scope -> resolveClassNameFromScope(scope, aliasMap, visited))
                     .orElse(null);
-            refs.add(new FieldRef(className, fieldName));
+            
+            // Only add if we successfully resolved a class name
+            if (className != null && looksLikeClassName(className)) {
+                refs.add(new FieldRef(className, fieldName));
+            }
+            // If resolution failed, skip this field (conservative - avoids false positives)
             return;
         }
         mc.getScope().ifPresent(scope -> collectFieldRefs(scope, refs, aliasMap, visited));
@@ -264,32 +269,51 @@ class FieldRefExtractor {
             }
         } catch (Exception ignored) {}
 
-        // Step 2.5: getter chain with receiver-type field lookup.
-        // Handles a.getB().setFoo() where getB() is Lombok-generated:
-        //   - resolve a's type via SymbolSolver → A
-        //   - look up field "b" in A's declaration → type B
-        //   - return "B"
-        // Limited to one hop from a directly-resolvable receiver; deeper Lombok chains
-        // are covered by the Spoon inter-procedural path.
-        if (scope instanceof MethodCallExpr mc && isGetter(mc) && mc.getScope().isPresent()) {
+        // Step 2.5: getter chain with recursive resolution.
+        // Handles a.getB().getC() where getB()/getC() are Lombok-generated:
+        //   - Try SymbolSolver first (works for non-Lombok chains)
+        //   - If that fails, recursively resolve receiver and look up field type
+        if (scope instanceof MethodCallExpr mc && isGetter(mc)) {
+            // First try: direct SymbolSolver resolution of the entire expression
             try {
-                String raw = mc.getNameAsString();                         // "getB"
-                String fn  = Character.toLowerCase(raw.charAt(3)) + raw.substring(4);  // "b"
-                ResolvedType receiverType = mc.getScope().get().calculateResolvedType();
-                if (receiverType.isReferenceType()) {
-                    var typeDecl = receiverType.asReferenceType().getTypeDeclaration().orElse(null);
-                    if (typeDecl != null) {
-                        for (var field : typeDecl.getDeclaredFields()) {
-                            if (field.getName().equals(fn)) {
-                                String typeName = field.getType().describe();
-                                int dot = typeName.lastIndexOf('.');
-                                String simple = dot >= 0 ? typeName.substring(dot + 1) : typeName;
-                                if (looksLikeClassName(simple)) return simple;
-                            }
-                        }
-                    }
+                ResolvedType type = mc.calculateResolvedType();
+                if (type.isReferenceType()) {
+                    String qualified = type.asReferenceType().getQualifiedName();
+                    String className = extractSimpleClassName(qualified);
+                    if (looksLikeClassName(className)) return className;
                 }
             } catch (Exception ignored) {}
+            
+            // Second try: recursively resolve receiver + field lookup
+            if (mc.getScope().isPresent()) {
+                Expression receiverExpr = mc.getScope().get();
+                
+                // Recursively resolve the receiver class (may itself be a getter chain)
+                String receiverClass = resolveClassNameFromScope(receiverExpr, aliasMap, visited);
+                
+                if (looksLikeClassName(receiverClass)) {
+                    // Now look up the field in the receiver class
+                    try {
+                        String raw = mc.getNameAsString();
+                        String fn = Character.toLowerCase(raw.charAt(3)) + raw.substring(4);
+                        
+                        // Resolve receiver type to find its fields
+                        ResolvedType receiverType = receiverExpr.calculateResolvedType();
+                        if (receiverType.isReferenceType()) {
+                            var typeDecl = receiverType.asReferenceType().getTypeDeclaration().orElse(null);
+                            if (typeDecl != null) {
+                                for (var field : typeDecl.getDeclaredFields()) {
+                                    if (field.getName().equals(fn)) {
+                                        String fieldType = field.getType().describe();
+                                        String simpleType = extractSimpleClassName(fieldType);
+                                        if (looksLikeClassName(simpleType)) return simpleType;
+                                    }
+                                }
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
         }
 
         // Step 3: heuristic fallback from scope text
@@ -325,6 +349,42 @@ class FieldRefExtractor {
             // Builder pattern: Address.builder().setX(...).build() → "Address"
             String builderClass = extractBuilderRootClass(mc);
             if (builderClass != null) return builderClass;
+            
+            // Getter chain: orderDTO.getOrder() → resolve via SymbolSolver or field lookup
+            if (isGetter(mc)) {
+                try {
+                    ResolvedType type = mc.calculateResolvedType();
+                    if (type.isReferenceType()) {
+                        String qualified = type.asReferenceType().getQualifiedName();
+                        int dot = qualified.lastIndexOf('.');
+                        String className = dot >= 0 ? qualified.substring(dot + 1) : qualified;
+                        if (looksLikeClassName(className)) return className;
+                    }
+                } catch (Exception ignored) {}
+                
+                // Fallback: look up field in receiver type
+                if (mc.getScope().isPresent()) {
+                    try {
+                        String raw = mc.getNameAsString();
+                        String fn = Character.toLowerCase(raw.charAt(3)) + raw.substring(4);
+                        ResolvedType receiverType = mc.getScope().get().calculateResolvedType();
+                        if (receiverType.isReferenceType()) {
+                            var typeDecl = receiverType.asReferenceType().getTypeDeclaration().orElse(null);
+                            if (typeDecl != null) {
+                                for (var field : typeDecl.getDeclaredFields()) {
+                                    if (field.getName().equals(fn)) {
+                                        String typeName = field.getType().describe();
+                                        int dot = typeName.lastIndexOf('.');
+                                        String simple = dot >= 0 ? typeName.substring(dot + 1) : typeName;
+                                        if (looksLikeClassName(simple)) return simple;
+                                    }
+                                }
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
+            
             return mc.getNameAsString() + "()";
         }
         return scope.toString();
@@ -420,5 +480,18 @@ class FieldRefExtractor {
         }
         
         return methodName + "()";
+    }
+    
+    // -------------------------------------------------------------------------
+    // Helper methods
+    // -------------------------------------------------------------------------
+    
+    /**
+     * Extracts simple class name from qualified name.
+     */
+    private String extractSimpleClassName(String qualifiedName) {
+        if (qualifiedName == null) return null;
+        int dot = qualifiedName.lastIndexOf('.');
+        return dot >= 0 ? qualifiedName.substring(dot + 1) : qualifiedName;
     }
 }

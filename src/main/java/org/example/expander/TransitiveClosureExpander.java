@@ -64,7 +64,11 @@ public class TransitiveClosureExpander {
                         PairKey pairKey = new PairKey(m1.leftSide(), m2.rightSide());
                         if (seenKeys.contains(pairKey)) continue;
 
-                        String rawExpr = "derived: [" + m1.rawExpression() + "] → [" + m2.rawExpression() + "]";
+                        // Build readable derivation path showing field mapping chain
+                        String sourceFields = formatSide(m1.leftSide());
+                        String bridgeFields = formatSide(m1.rightSide());
+                        String targetFields = formatSide(m2.rightSide());
+                        String rawExpr = sourceFields + " → " + bridgeFields + " → " + targetFields;
                         FieldMapping m3 = new FieldMapping(
                                 m1.leftSide(),
                                 m2.rightSide(),
@@ -132,6 +136,22 @@ public class TransitiveClosureExpander {
     }
 
     // -------------------------------------------------------------------------
+
+    /**
+     * Formats an ExpressionSide for display in derivation paths.
+     * Example: [User.id, User.phone] or Order.userId
+     */
+    private String formatSide(ExpressionSide side) {
+        if (side == null || side.isEmpty()) return "<unknown>";
+        List<String> fields = side.fields().stream()
+                .map(f -> {
+                    String className = f.className();
+                    String fieldName = f.fieldName();
+                    return (className != null ? className + "." : "") + fieldName;
+                })
+                .toList();
+        return fields.size() == 1 ? fields.get(0) : "[" + String.join(", ", fields) + "]";
+    }
 
     private record FieldKey(String className, String fieldName) {}
 

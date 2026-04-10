@@ -4,27 +4,37 @@
 
 | 项目 | 数值 |
 |---|---|
-| 涉及类关系对（直接） | 10 |
+| 涉及类关系对（直接） | 11 |
 | 探测型关联（READ） | 2 |
-| 动作型关联（WRITE） | 12 |
-| 推导关联（传递闭包） | 0 |
+| 动作型关联（WRITE） | 15 |
+| 推导关联（传递闭包） | 2 |
 
 ## 关联图谱
 
 ```mermaid
 flowchart LR
-    Address -->|"PD: Address.zip ≡ User.areaCode"| User
-    User -->|"CP: format(User.id, User.phone) ≡ format(Order.userId, Order.phone)"| Order
-    User -.->|"CP: User.id ≡ Order.userId"| Order
-    User -.->|"AE: User.name ≡ Employee.lastName"| Employee
-    User -.->|"PD: User.id ≡ Invoice.buyerId"| Invoice
-    OrderDTO -.->|"PD: OrderDTO.holds ≡ Order.held"| Order
-    UserOrderDTO -.->|"PD: UserOrderDTO.holds ≡ OrderDTO.held"| OrderDTO
-    UserOrderDTO -.->|"PD: UserOrderDTO.holds ≡ User.held"| User
-    User -.->|"PD: User.phone ≡ Account.fullMobile"| Account
-    User -.->|"PD: User.id ≡ Account.userId"| Account
-    Order -.->|"PD: Order.city ≡ Address.city"| Address
-    Order -.->|"PD: Order.orderId ≡ Invoice.refOrderId"| Invoice
+    linkStyle default stroke:#999,stroke-width:1px
+    Address -->|"PD: Address.zip ≡ User.areaCode"| User:::readRel
+    User -->|"CP: format(User.id, User.phone) ≡ format(Order.userId, Order.phone)"| Order:::readRel
+    User -.->|"CP: User.id ≡ Order.userId"| Order:::writeRel
+    User -.->|"AE: User.name ≡ Employee.lastName"| Employee:::writeRel
+    User -.->|"PD: User.name ≡ Employee.lastName"| Employee:::writeRel
+    User -.->|"PD: User.id ≡ Invoice.buyerId"| Invoice:::writeRel
+    OrderDTO -.->|"PD: OrderDTO.holds ≡ Order.held"| Order:::writeRel
+    UserOrderDTO -.->|"PD: UserOrderDTO.holds ≡ OrderDTO.held"| OrderDTO:::writeRel
+    UserOrderDTO -.->|"PD: UserOrderDTO.holds ≡ User.held"| User:::writeRel
+    User -.->|"PD: User.phone ≡ Account.fullMobile"| Account:::writeRel
+    User -.->|"PD: User.id ≡ Account.userId"| Account:::writeRel
+    Order -.->|"PD: Order.city ≡ Address.city"| Address:::writeRel
+    Order -.->|"PD: Order.userId ≡ VipUser.id"| VipUser:::writeRel
+    Order -.->|"PD: Order.orderId ≡ Invoice.refOrderId"| Invoice:::writeRel
+    VipUser -.->|"extends"| User:::inheritRel
+    __derived__ ==>|"PD: format(User.id, User.phone) ≡ VipUser.id"| VipUser:::derivedRel
+    __derived__ ==>|"PD: User.id ≡ VipUser.id"| VipUser:::derivedRel
+    classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
+    classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
+    classDef derivedRel stroke:#7b1fa2,stroke-width:3px,color:#7b1fa2
+    classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
 ```
 
 > 实线箭头 `-->` 为探测型（READ），虚线箭头 `-.->` 为动作型（WRITE）。
@@ -36,6 +46,12 @@ flowchart LR
 | **AE** | Atomic Equality | 原子等值：单字段对单字段的直接映射 | `A.id ≡ B.userId` |
 | **CP** | Composite Projection | 投影组合：多字段组合或拼接后的映射 | `A.f1 + A.f2 ≡ B.full` |
 | **PD** | Parameterized / Derived | 参数化/派生：经过转换、归一化或依赖上下文的映射 | `A.code.toLowerCase() ≡ B.value` |
+
+### 继承关系
+
+| 子类 | 父类 | 继承字段 |
+|---|---|---|
+| `VipUser` | `User` | `areaCode, phone, tenantId, id, name` |
 
 ## 字段血缘明细
 
@@ -54,7 +70,7 @@ flowchart LR
 
 | 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
 |---|---|---|---|---|---|
-| `Order.userId`, `Order.phone` | `User.id`, `User.phone` | COMPOSITE | READ | `CustomService.java:63` |
+| `Order.userId`, `Order.phone` | `User.id`, `User.phone` | COMPOSITE | READ | `CustomService.java:66` |
 | | *userAndPhone.equals(userAndPhone2)* | | | |
 | `Order.userId` | `User.id` | COMPOSITE | WRITE | `CustomService.java:14` |
 | | *order.userId = "P" + id* | | | |
@@ -62,12 +78,16 @@ flowchart LR
 | | *userOrderDTO.getOrderDTO().getOrder()* | | | |
 | `Order.held` | `OrderDTO.holds` | PARAMETERIZED | WRITE | `main(composition)` |
 | | *orderDTO.getOrder()* | | | |
+| `Order.held` | `OrderDTO.holds` | PARAMETERIZED | WRITE | `main(composition)` |
+| | *orderDTO.getOrder()* | | | |
 
 ### Employee
 
 | 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
 |---|---|---|---|---|---|
-| `Employee.lastName` | `User.name` | ATOMIC | WRITE | `CustomService.java:52` |
+| `Employee.lastName` | `User.name` | ATOMIC | WRITE | `CustomService.java:55` |
+| | *employee.setLastName(user.getName())* | | | |
+| `Employee.lastName` | `User.name` | PARAMETERIZED | WRITE | `iterateCall(direct-setter)` |
 | | *employee.setLastName(user.getName())* | | | |
 
 ### Invoice
@@ -101,4 +121,27 @@ flowchart LR
 |---|---|---|---|---|---|
 | `Address.city` | `Order.city` | PARAMETERIZED | WRITE | `main(builder)` |
 | | *Address.builder().city(orderDTO.getOrder().getCity())* | | | |
+
+### VipUser
+
+| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+|---|---|---|---|---|---|
+| `VipUser.id` | `Order.userId` | PARAMETERIZED | WRITE | `main(direct-setter)` |
+| | *vipUser.setId(orderDTO.getOrder().getUserId())* | | | |
+
+## 推导关联（传递性闭包）
+
+> 以下关联由工具自动推导，非源码直接体现。
+
+### User
+
+| 目标表字段 | 源表字段集合 | 推导路径 |
+|---|---|---|
+
+### VipUser
+
+| 目标表字段 | 源表字段集合 | 推导路径 |
+|---|---|---|
+| `VipUser.id` | `User.id`, `User.phone` | *[User.id, User.phone] → [Order.userId, Order.phone] → VipUser.id* |
+| `VipUser.id` | `User.id` | *User.id → Order.userId → VipUser.id* |
 

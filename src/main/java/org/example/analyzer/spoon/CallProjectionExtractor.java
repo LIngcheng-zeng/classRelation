@@ -82,6 +82,10 @@ class CallProjectionExtractor {
                 }
             }
         }
+        
+        // Extract direct setter calls within the same method (intra-procedural)
+        // For example: vipUser.setId(orderDTO.getOrder().getUserId())
+        extractDirectSetterCalls(method, aliasMap);
 
         // Process inter-procedural calls
         processInvocations(method, aliasMap, 0, visited);
@@ -122,6 +126,41 @@ class CallProjectionExtractor {
     // -------------------------------------------------------------------------
     // Callee extraction (setter calls + field assignments inside callee body)
     // -------------------------------------------------------------------------
+
+    /**
+     * Extracts direct setter calls within the same method (intra-procedural).
+     * For example: vipUser.setId(orderDTO.getOrder().getUserId())
+     * This handles cases where setter arguments contain getter chains.
+     */
+    private void extractDirectSetterCalls(CtExecutable<?> method,
+                                          Map<String, CtExpression<?>> aliasMap) {
+        String location = method.getSimpleName() + "(direct-setter)";
+        
+        for (CtInvocation<?> inv : method.getElements(new TypeFilter<>(CtInvocation.class))) {
+            if (!isSetter(inv)) continue;
+            
+            String rawName   = inv.getExecutable().getSimpleName();
+            String fieldName = Character.toLowerCase(rawName.charAt(3)) + rawName.substring(4);
+            
+            CtExpression<?> receiver = inv.getTarget();
+            CtExpression<?> value    = inv.getArguments().get(0);
+            
+            String sinkClass = resolveClassName(receiver);
+            FieldRef sinkRef = new FieldRef(sinkClass, fieldName);
+            ExpressionSide sinkSide = new ExpressionSide(List.of(sinkRef), "direct");
+            
+            // Extract source side from the argument (may contain getter chains)
+            ExpressionSide sourceSide = extractSourceSide(value, aliasMap);
+            if (!isValidPair(sourceSide, sinkSide)) continue;
+            
+            results.add(new FieldMapping(
+                    sourceSide, sinkSide,
+                    MappingType.PARAMETERIZED,
+                    MappingMode.WRITE_ASSIGNMENT,
+                    inv.toString(),
+                    location));
+        }
+    }
 
     private void extractFromCallee(CtExecutable<?> callee,
                                     Map<String, CtExpression<?>> projectedAlias) {
