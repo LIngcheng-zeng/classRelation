@@ -2,6 +2,8 @@ package org.example.analyzer.spoon;
 
 import org.example.model.FieldMapping;
 import org.example.spi.SourceAnalyzer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import spoon.Launcher;
 import spoon.reflect.declaration.CtExecutable;
 import spoon.reflect.declaration.CtMethod;
@@ -13,7 +15,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.logging.Logger;
 
 /**
  * Spoon-based implementation of {@link SourceAnalyzer}.
@@ -30,7 +31,7 @@ import java.util.logging.Logger;
  */
 public class SpoonAnalyzer implements SourceAnalyzer {
 
-    private static final Logger log = Logger.getLogger(SpoonAnalyzer.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(SpoonAnalyzer.class);
 
     @Override
     public List<FieldMapping> analyze(Path projectRoot) {
@@ -72,7 +73,7 @@ public class SpoonAnalyzer implements SourceAnalyzer {
             launcher.buildModel();
             return launcher;
         } catch (Exception e) {
-            log.warning("SpoonAnalyzer: failed to build model for " + projectRoot + " — " + e.getMessage());
+            log.warn("SpoonAnalyzer: failed to build model for {} — {}", projectRoot, e.getMessage());
             return null;
         }
     }

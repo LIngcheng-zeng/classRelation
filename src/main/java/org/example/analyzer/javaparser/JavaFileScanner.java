@@ -1,18 +1,20 @@
 package org.example.analyzer.javaparser;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.logging.Logger;
 
 /**
  * Recursively scans a directory for .java source files.
  */
 class JavaFileScanner {
 
-    private static final Logger log = Logger.getLogger(JavaFileScanner.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(JavaFileScanner.class);
 
     List<Path> scan(Path rootPath) {
         if (!Files.isDirectory(rootPath)) {
@@ -32,7 +34,7 @@ class JavaFileScanner {
 
                 @Override
                 public FileVisitResult visitFileFailed(Path file, IOException exc) {
-                    log.warning("Failed to visit file: " + file + " — " + exc.getMessage());
+                    log.warn("Failed to visit file: {} — {}", file, exc.getMessage());
                     return FileVisitResult.CONTINUE;
                 }
             });
@@ -40,7 +42,7 @@ class JavaFileScanner {
             throw new RuntimeException("Error scanning directory: " + rootPath, e);
         }
 
-        log.info("Found " + javaFiles.size() + " .java files under: " + rootPath);
+        log.info("Found {} .java files under: {}", javaFiles.size(), rootPath);
         return javaFiles;
     }
 }

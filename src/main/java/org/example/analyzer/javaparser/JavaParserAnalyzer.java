@@ -10,12 +10,13 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeS
 import org.example.classifier.RelationshipClassifier;
 import org.example.model.FieldMapping;
 import org.example.spi.SourceAnalyzer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.logging.Logger;
 
 /**
  * JavaParser-based implementation of {@link SourceAnalyzer}.
@@ -29,7 +30,7 @@ import java.util.logging.Logger;
  */
 public class JavaParserAnalyzer implements SourceAnalyzer {
 
-    private static final Logger log = Logger.getLogger(JavaParserAnalyzer.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(JavaParserAnalyzer.class);
 
     private final JavaFileScanner        scanner    = new JavaFileScanner();
     private final FieldRefExtractor      extractor  = new FieldRefExtractor();
@@ -56,9 +57,9 @@ public class JavaParserAnalyzer implements SourceAnalyzer {
                     mappings.addAll(me.extract(cu, fileName, extractor, classifier));
                 }
             } catch (IOException e) {
-                log.warning("Failed to parse file: " + file + " — " + e.getMessage());
+                log.warn("Failed to parse file: {} — {}", file, e.getMessage());
             } catch (Exception e) {
-                log.warning("Unexpected error parsing: " + file + " — " + e.getMessage());
+                log.warn("Unexpected error parsing: {} — {}", file, e.getMessage());
             }
         }
 
@@ -76,7 +77,7 @@ public class JavaParserAnalyzer implements SourceAnalyzer {
             StaticJavaParser.setConfiguration(
                     new ParserConfiguration().setSymbolResolver(new JavaSymbolSolver(solver)));
         } catch (Exception e) {
-            log.warning("Symbol solver setup failed, type resolution will be degraded: " + e.getMessage());
+            log.warn("Symbol solver setup failed, type resolution will be degraded: {}", e.getMessage());
             StaticJavaParser.setConfiguration(new ParserConfiguration());
         }
     }

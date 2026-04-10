@@ -5,6 +5,8 @@ import com.github.javaparser.resolution.UnsolvedSymbolException;
 import com.github.javaparser.resolution.types.ResolvedType;
 import org.example.model.ExpressionSide;
 import org.example.model.FieldRef;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -12,7 +14,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.logging.Logger;
 
 /**
  * Extracts field references from a JavaParser expression.
@@ -34,7 +35,7 @@ import java.util.logging.Logger;
  */
 class FieldRefExtractor {
 
-    private static final Logger log = Logger.getLogger(FieldRefExtractor.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(FieldRefExtractor.class);
 
     ExpressionSide extract(Expression expr) {
         return extract(expr, Collections.emptyMap());

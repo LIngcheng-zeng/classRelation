@@ -3,6 +3,8 @@ package org.example;
 import org.example.analyzer.LineageAnalyzer;
 import org.example.model.ClassRelation;
 import org.example.renderer.MarkdownDocumentRenderer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -10,11 +12,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
-import java.util.logging.Logger;
 
 public class Main {
 
-    private static final Logger log = Logger.getLogger(Main.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(Main.class);
 
     public static void main(String[] args) {
         if (args.length < 1) {
@@ -51,11 +52,11 @@ public class Main {
 
         } catch (IOException e) {
             System.err.println("Failed to write report: " + e.getMessage());
-            log.severe("IO error: " + e);
+            log.error("IO error", e);
             System.exit(2);
         } catch (Exception e) {
             System.err.println("Analysis failed: " + e.getMessage());
-            log.severe("Analysis failed: " + e);
+            log.error("Analysis failed", e);
             System.exit(2);
         }
     }
