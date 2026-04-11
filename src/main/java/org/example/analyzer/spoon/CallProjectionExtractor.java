@@ -1,5 +1,10 @@
 package org.example.analyzer.spoon;
 
+import org.example.analyzer.spoon.inter.InterProceduralExtractor;
+import org.example.analyzer.spoon.intra.BuilderChainExtractor;
+import org.example.analyzer.spoon.intra.ConstructorCallExtractor;
+import org.example.analyzer.spoon.intra.DirectSetterExtractor;
+import org.example.analyzer.spoon.structural.CompositionExtractor;
 import org.example.model.FieldMapping;
 import spoon.reflect.CtModel;
 import spoon.reflect.code.CtExpression;
@@ -13,14 +18,13 @@ import java.util.Map;
  * Orchestrates all Spoon-based field-mapping patterns for a single method execution.
  *
  * Delegates each pattern to a focused {@link SpoonPatternExtractor} implementation:
- *   1. {@link CompositionExtractor}     — getter return-type aggregation relationships
- *   2. {@link ConstructorCallExtractor} — constructor argument → parameter mappings
- *   3. {@link BuilderChainExtractor}    — builder().field(x).build() chains
- *   4. {@link DirectSetterExtractor}    — intra-procedural obj.setXxx(expr) calls
- *   5. {@link InterProceduralExtractor} — cross-method projection (depth-limited, cycle-guarded)
+ *   structural — {@link CompositionExtractor}     (class-level aggregation relationships)
+ *   intra      — {@link ConstructorCallExtractor} (constructor argument → parameter mappings)
+ *   intra      — {@link BuilderChainExtractor}    (builder().field(x).build() chains)
+ *   intra      — {@link DirectSetterExtractor}    (intra-procedural obj.setXxx(expr) calls)
+ *   inter      — {@link InterProceduralExtractor} (cross-method projection, depth-limited)
  *
- * All pattern extractors share a single {@link SpoonResolutionHelper} instance
- * which encapsulates the CtModel and common resolution utilities.
+ * All pattern extractors share a single {@link SpoonResolutionHelper} instance.
  */
 class CallProjectionExtractor {
 

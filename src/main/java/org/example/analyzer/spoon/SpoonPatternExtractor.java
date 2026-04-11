@@ -16,7 +16,7 @@ import java.util.Map;
  *
  * Implementations must be stateless — all results are returned, never accumulated.
  */
-interface SpoonPatternExtractor {
+public interface SpoonPatternExtractor {
 
     /**
      * @param method   the executable whose body is being inspected

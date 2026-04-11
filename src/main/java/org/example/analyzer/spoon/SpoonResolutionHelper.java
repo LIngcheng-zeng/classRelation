@@ -43,7 +43,7 @@ import java.util.Set;
  *
  * Stateless except for the injected CtModel.
  */
-class SpoonResolutionHelper {
+public class SpoonResolutionHelper {
 
     private final CtModel model;
 
@@ -61,22 +61,22 @@ class SpoonResolutionHelper {
         this.exprNameChain     = buildExprNameChain();
     }
 
-    CtModel model() { return model; }
+    public CtModel model() { return model; }
 
     // -------------------------------------------------------------------------
     // Public resolution entry points
     // -------------------------------------------------------------------------
 
-    String resolveClassName(CtExpression<?> target) {
+    public String resolveClassName(CtExpression<?> target) {
         if (target == null) return null;
         return exprNameChain.resolve(target);
     }
 
-    String resolveGetterReturnType(CtInvocation<?> inv) {
+    public String resolveGetterReturnType(CtInvocation<?> inv) {
         return getterReturnChain.resolve(inv);
     }
 
-    String resolveClassNameFromFieldRef(CtFieldRead<?> fr) {
+    public String resolveClassNameFromFieldRef(CtFieldRead<?> fr) {
         try {
             CtTypeReference<?> declaringType = fr.getVariable().getDeclaringType();
             if (declaringType != null) {
@@ -236,7 +236,7 @@ class SpoonResolutionHelper {
     // Hierarchy traversal
     // -------------------------------------------------------------------------
 
-    String findFieldTypeInHierarchy(CtType<?> type, String fieldName) {
+    public String findFieldTypeInHierarchy(CtType<?> type, String fieldName) {
         Set<String> visited = new HashSet<>();
         CtType<?>   current = type;
 
@@ -277,7 +277,7 @@ class SpoonResolutionHelper {
     // Builder / monadic unwrapping
     // -------------------------------------------------------------------------
 
-    String unwrapBuilderOrMonadicType(CtInvocation<?> inv) {
+    public String unwrapBuilderOrMonadicType(CtInvocation<?> inv) {
         String methodName = inv.getExecutable().getSimpleName();
 
         // Strategy 1: build() / buildXxx() — return the build method's declared return type
@@ -323,13 +323,13 @@ class SpoonResolutionHelper {
     // Source side: expression → FieldRef list
     // -------------------------------------------------------------------------
 
-    ExpressionSide extractSourceSide(CtExpression<?> expr, Map<String, CtExpression<?>> aliasMap) {
+    public ExpressionSide extractSourceSide(CtExpression<?> expr, Map<String, CtExpression<?>> aliasMap) {
         List<FieldRef> refs = new ArrayList<>();
         collectFieldRefs(expr, refs, aliasMap, new HashSet<>());
         return new ExpressionSide(refs, "direct");
     }
 
-    void collectFieldRefs(CtExpression<?> expr, List<FieldRef> refs,
+    public void collectFieldRefs(CtExpression<?> expr, List<FieldRef> refs,
                           Map<String, CtExpression<?>> aliasMap, Set<String> visited) {
         if (expr instanceof CtFieldRead<?> fr) {
             refs.add(new FieldRef(resolveClassNameFromFieldRef(fr), fr.getVariable().getSimpleName()));
@@ -369,7 +369,7 @@ class SpoonResolutionHelper {
     // Predicates
     // -------------------------------------------------------------------------
 
-    boolean isSetter(CtInvocation<?> inv) {
+    public boolean isSetter(CtInvocation<?> inv) {
         String name = inv.getExecutable().getSimpleName();
         return name.startsWith("set")
                 && name.length() > 3
@@ -378,7 +378,7 @@ class SpoonResolutionHelper {
                 && inv.getTarget() != null;
     }
 
-    boolean isGetter(CtInvocation<?> inv) {
+    public boolean isGetter(CtInvocation<?> inv) {
         String name = inv.getExecutable().getSimpleName();
         return name.startsWith("get")
                 && name.length() > 3
@@ -387,7 +387,7 @@ class SpoonResolutionHelper {
                 && inv.getTarget() != null;
     }
 
-    boolean isBuilderMethod(CtInvocation<?> inv) {
+    public boolean isBuilderMethod(CtInvocation<?> inv) {
         String name = inv.getExecutable().getSimpleName();
         return name.equals("builder")
                 || name.equals("build")
@@ -396,7 +396,7 @@ class SpoonResolutionHelper {
                 || (name.startsWith("set") && inv.getTarget() != null);
     }
 
-    boolean isMonadicMethod(CtInvocation<?> inv) {
+    public boolean isMonadicMethod(CtInvocation<?> inv) {
         String name = inv.getExecutable().getSimpleName();
         return name.equals("map")        || name.equals("flatMap")
                 || name.equals("filter") || name.equals("orElse")
@@ -404,14 +404,14 @@ class SpoonResolutionHelper {
                 || name.equals("ifPresent") || name.equals("ifPresentOrElse");
     }
 
-    boolean isValidPair(ExpressionSide left, ExpressionSide right) {
+    public boolean isValidPair(ExpressionSide left, ExpressionSide right) {
         if (left.isEmpty() && right.isEmpty()) return false;
         boolean leftHasClass  = left.fields().stream().anyMatch(f -> f.className() != null);
         boolean rightHasClass = right.fields().stream().anyMatch(f -> f.className() != null);
         return leftHasClass || rightHasClass;
     }
 
-    boolean isSystemClass(String className) {
+    public boolean isSystemClass(String className) {
         if (className == null) return true;
         return className.startsWith("java.")   || className.startsWith("javax.")
                 || className.startsWith("sun.")

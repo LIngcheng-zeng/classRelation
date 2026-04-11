@@ -17,7 +17,7 @@ import java.util.List;
  *   1. Implement this interface
  *   2. Register the instance in {@link JavaParserAnalyzer}
  */
-interface MappingExtractor {
+public interface MappingExtractor {
 
     /**
      * Scans {@code cu} and returns all field mappings found by this extractor.

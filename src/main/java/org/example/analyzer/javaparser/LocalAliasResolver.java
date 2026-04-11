@@ -24,9 +24,9 @@ import java.util.Map;
  * Note: the map may contain circular entries (e.g. a = b; b = a).
  * FieldRefExtractor guards against this with a visited-set during expansion.
  */
-class LocalAliasResolver {
+public class LocalAliasResolver {
 
-    static Map<String, Expression> resolve(MethodDeclaration method) {
+    public static Map<String, Expression> resolve(MethodDeclaration method) {
         Map<String, Expression> aliasMap = new LinkedHashMap<>();
 
         new VoidVisitorAdapter<Void>() {

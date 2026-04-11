@@ -34,7 +34,7 @@ import java.util.Set;
  *   3. GetterChainResolver        — recursive resolution for getter chains a.getB().getC()
  *   4. HeuristicScopeResolver     — builder root, getter SymbolSolver, capitalization fallback
  */
-class FieldRefExtractor {
+public class FieldRefExtractor {
 
     private static final Logger log = LoggerFactory.getLogger(FieldRefExtractor.class);
 
@@ -50,11 +50,11 @@ class FieldRefExtractor {
     // Public API
     // -------------------------------------------------------------------------
 
-    ExpressionSide extract(Expression expr) {
+    public ExpressionSide extract(Expression expr) {
         return extract(expr, Collections.emptyMap());
     }
 
-    ExpressionSide extract(Expression expr, Map<String, Expression> aliasMap) {
+    public ExpressionSide extract(Expression expr, Map<String, Expression> aliasMap) {
         Expression expanded = expandAliases(expr, aliasMap, new HashSet<>());
         String     operator = detectOperator(expanded);
         List<FieldRef> refs = new ArrayList<>();
@@ -62,14 +62,14 @@ class FieldRefExtractor {
         return new ExpressionSide(refs, operator);
     }
 
-    List<String> extractNormalization(Expression expr) {
+    public List<String> extractNormalization(Expression expr) {
         List<String> normalizations = new ArrayList<>();
         collectNormalizationOps(expr, normalizations);
         return normalizations;
     }
 
     /** Public entry point used by SetterMappingExtractor. */
-    String resolveClassNamePublic(Expression scope, Map<String, Expression> aliasMap) {
+    public String resolveClassNamePublic(Expression scope, Map<String, Expression> aliasMap) {
         return scopeChain.resolve(ScopeContext.of(scope, aliasMap, new HashSet<>()));
     }
 
