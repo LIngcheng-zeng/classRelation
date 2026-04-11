@@ -1,16 +1,14 @@
 package org.example.analyzer.spoon;
 
 import org.example.model.FieldMapping;
-import org.example.spi.AnalysisContext;
+import org.example.resolution.SymbolResolutionResult;
 import org.example.spi.SourceAnalyzer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import spoon.Launcher;
-import spoon.reflect.declaration.CtExecutable;
+import spoon.reflect.CtModel;
+import spoon.reflect.code.CtExpression;
 import spoon.reflect.declaration.CtMethod;
 import spoon.reflect.declaration.CtType;
-import spoon.reflect.code.CtExpression;
-import spoon.reflect.CtModel;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -24,35 +22,20 @@ import java.util.Map;
  * cases where a field value is passed as an argument to another method, and inside that
  * method the value is written to a different object's field.
  *
- * Uses Eclipse JDT-level compilation for accurate type resolution, and
- * {@code CtInvocation.getExecutable().getDeclaration()} for direct callee navigation.
- *
- * To add a new Spoon-based detection pattern, implement the extraction logic
- * in a separate class and call it from {@link #analyzeExecutable}.
+ * Symbol resolution (CtModel, FieldTypeMap, inheritance) is performed once by
+ * {@link org.example.resolution.SymbolResolver} and passed in via {@link SymbolResolutionResult}.
  */
 public class SpoonAnalyzer implements SourceAnalyzer {
 
     private static final Logger log = LoggerFactory.getLogger(SpoonAnalyzer.class);
 
     @Override
-    public List<FieldMapping> analyze(Path projectRoot) {
-        return analyze(projectRoot, new AnalysisContext());
-    }
-
-    @Override
-    public List<FieldMapping> analyze(Path projectRoot, AnalysisContext ctx) {
-        Launcher launcher = buildLauncher(projectRoot);
-        if (launcher == null) return List.of();
-
-        CtModel model = launcher.getModel();
-
-        // Build and publish FieldTypeMap so JavaParserAnalyzer can consume it
-        ctx.fieldTypeMap = FieldTypeMap.build(model);
-        log.info("SpoonAnalyzer built {}", ctx.fieldTypeMap);
-        
-        // Detect inheritance relationships
-        ctx.inheritanceMap = detectInheritance(model);
-        log.info("SpoonAnalyzer detected {} inheritance relationship(s)", ctx.inheritanceMap.size());
+    public List<FieldMapping> analyze(Path projectRoot, SymbolResolutionResult symbols) {
+        CtModel model = symbols.spoonModel();
+        if (model == null) {
+            log.warn("SpoonAnalyzer: no Spoon model available, skipping");
+            return List.of();
+        }
 
         List<FieldMapping> mappings = new ArrayList<>();
 
@@ -63,48 +46,8 @@ public class SpoonAnalyzer implements SourceAnalyzer {
             }
         }
 
-        log.info("SpoonAnalyzer found " + mappings.size() + " inter-procedural mapping(s)");
+        log.info("SpoonAnalyzer found {} inter-procedural mapping(s)", mappings.size());
         return mappings;
-    }
-    
-    /**
-     * Detects inheritance relationships in the model.
-     * Returns a map: childClassName -> InheritanceInfo
-     */
-    private Map<String, org.example.model.ClassRelation.InheritanceInfo> detectInheritance(CtModel model) {
-        Map<String, org.example.model.ClassRelation.InheritanceInfo> inheritanceMap = new java.util.HashMap<>();
-        
-        for (CtType<?> type : model.getAllTypes()) {
-            try {
-                spoon.reflect.reference.CtTypeReference<?> superclass = type.getSuperclass();
-                if (superclass != null && !superclass.getQualifiedName().equals("java.lang.Object")) {
-                    String childClass = type.getQualifiedName();
-                    String parentClass = superclass.getQualifiedName();
-                    
-                    // Collect inherited fields (fields declared in parent class)
-                    List<String> inheritedFields = new ArrayList<>();
-                    try {
-                        spoon.reflect.declaration.CtType<?> parentType = superclass.getDeclaration();
-                        if (parentType != null) {
-                            for (spoon.reflect.reference.CtFieldReference<?> fieldRef : parentType.getDeclaredFields()) {
-                                inheritedFields.add(fieldRef.getSimpleName());
-                            }
-                        }
-                    } catch (Exception ignored) {}
-                    
-                    inheritanceMap.put(childClass, new org.example.model.ClassRelation.InheritanceInfo(
-                        childClass, parentClass, inheritedFields
-                    ));
-                    
-                    log.debug("Found inheritance: {} extends {} (fields: {})", 
-                             childClass, parentClass, inheritedFields);
-                }
-            } catch (Exception e) {
-                log.debug("Failed to detect inheritance for {}: {}", type.getSimpleName(), e.getMessage());
-            }
-        }
-        
-        return inheritanceMap;
     }
 
     // -------------------------------------------------------------------------
@@ -116,33 +59,5 @@ public class SpoonAnalyzer implements SourceAnalyzer {
         CallProjectionExtractor extractor = new CallProjectionExtractor();
         extractor.extract(method, aliasMap, model);
         return extractor.results();
-    }
-
-    /**
-     * 构建并配置 Spoon Launcher，用于解析项目源代码。
-     *
-     * @param projectRoot 项目根目录路径
-     * @return 配置完成的 Launcher 实例，如果构建失败则返回 null
-     */
-    private Launcher buildLauncher(Path projectRoot) {
-        try {
-            Launcher launcher = new Launcher();
-            launcher.addInputResource(projectRoot.toString());
-
-            // 启用自动导入管理，打印代码时使用简单类名而非全限定名
-            launcher.getEnvironment().setAutoImports(true);
-
-            // 允许缺失依赖的类路径模式，容忍外部库不存在的情况
-            launcher.getEnvironment().setNoClasspath(true);
-
-            // 设置 Java 语言合规级别为 Java 17
-            launcher.getEnvironment().setComplianceLevel(17);
-
-            launcher.buildModel();
-            return launcher;
-        } catch (Exception e) {
-            log.warn("SpoonAnalyzer: failed to build model for {} — {}", projectRoot, e.getMessage());
-            return null;
-        }
     }
 }

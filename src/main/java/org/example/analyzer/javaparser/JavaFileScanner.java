@@ -3,7 +3,6 @@ package org.example.analyzer.javaparser;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParseResult;
 import com.github.javaparser.ast.CompilationUnit;
-import org.example.spi.AnalysisContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,35 +13,36 @@ import java.util.*;
 
 /**
  * Recursively scans a directory for .java source files.
- * Also builds a map of simple class name → fully qualified name for package filtering.
+ *
+ * Returns a {@link ScanResult} containing:
+ *   - ordered list of discovered .java paths
+ *   - classPackageIndex: simpleName → FQN (for later name qualification)
+ *
+ * Single-pass walk: files and the class-package index are built together.
  */
-class JavaFileScanner {
+public class JavaFileScanner {
 
     private static final Logger log = LoggerFactory.getLogger(JavaFileScanner.class);
 
+    public record ScanResult(List<Path> javaFiles, Map<String, String> classPackageIndex) {}
+
     /**
-     * Scans for Java files and builds class-package mapping.
-     *
-     * @param rootPath root directory to scan
-     * @param ctx analysis context to store the class-package map
-     * @return list of Java file paths
+     * Scans {@code rootPath} recursively and returns discovered files + class-package map.
      */
-    List<Path> scan(Path rootPath, AnalysisContext ctx) {
+    public ScanResult scan(Path rootPath) {
         if (!Files.isDirectory(rootPath)) {
             throw new IllegalArgumentException("Root path must be a directory: " + rootPath);
         }
 
         List<Path> javaFiles = new ArrayList<>();
-        Map<String, String> classPackageMap = new HashMap<>();
-        
+        Map<String, String> classPackageMap = new LinkedHashMap<>();
+
         try {
             Files.walkFileTree(rootPath, new SimpleFileVisitor<>() {
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                     if (file.toString().endsWith(".java")) {
                         javaFiles.add(file);
-                        
-                        // Extract package and class name from the file
                         extractClassInfo(file, classPackageMap);
                     }
                     return FileVisitResult.CONTINUE;
@@ -60,30 +60,24 @@ class JavaFileScanner {
 
         log.info("Found {} .java files under: {}", javaFiles.size(), rootPath);
         log.info("Mapped {} classes to packages", classPackageMap.size());
-        
-        // Store in context for later use
-        ctx.classPackageMap = Collections.unmodifiableMap(classPackageMap);
-        
-        return javaFiles;
+        return new ScanResult(Collections.unmodifiableList(javaFiles),
+                              Collections.unmodifiableMap(classPackageMap));
     }
-    
-    /**
-     * Extracts package declaration and class names from a Java file.
-     */
+
+    // -------------------------------------------------------------------------
+
     private void extractClassInfo(Path javaFile, Map<String, String> classPackageMap) {
         try {
             ParseResult<CompilationUnit> result = new JavaParser().parse(javaFile);
             if (result.isSuccessful() && result.getResult().isPresent()) {
                 CompilationUnit cu = result.getResult().get();
-                
-                // Get package name
+
                 String packageName = cu.getPackageDeclaration()
                         .map(pkg -> pkg.getNameAsString())
                         .orElse("");
-                
-                // Get all top-level type declarations
+
                 cu.getTypes().forEach(type -> {
-                    String className = type.getNameAsString();
+                    String className     = type.getNameAsString();
                     String qualifiedName = packageName.isEmpty() ? className : packageName + "." + className;
                     classPackageMap.put(className, qualifiedName);
                 });

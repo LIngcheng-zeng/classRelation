@@ -3,8 +3,6 @@ package org.example.graph;
 import org.example.model.ClassRelation;
 import org.example.model.FieldMapping;
 import org.example.model.FieldRef;
-import org.example.spi.AnalysisContext;
-
 import java.util.*;
 
 /**

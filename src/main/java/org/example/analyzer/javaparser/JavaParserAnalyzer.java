@@ -9,7 +9,7 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeS
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
 import org.example.classifier.RelationshipClassifier;
 import org.example.model.FieldMapping;
-import org.example.spi.AnalysisContext;
+import org.example.resolution.SymbolResolutionResult;
 import org.example.spi.SourceAnalyzer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +25,9 @@ import java.util.List;
  * Orchestrates a configurable list of {@link MappingExtractor}s over every
  * .java file found under the project root.
  *
+ * Raw mappings are returned without FQN qualification; {@link org.example.resolution.FieldRefQualifier}
+ * normalises all class names centrally after all extractors have run.
+ *
  * To add a new JavaParser detection pattern (e.g. constructor calls):
  *   1. Implement {@link MappingExtractor}
  *   2. Add an instance to the {@code extractors} list in the constructor
@@ -33,7 +36,6 @@ public class JavaParserAnalyzer implements SourceAnalyzer {
 
     private static final Logger log = LoggerFactory.getLogger(JavaParserAnalyzer.class);
 
-    private final JavaFileScanner        scanner    = new JavaFileScanner();
     private final FieldRefExtractor      extractor  = new FieldRefExtractor();
     private final RelationshipClassifier classifier = new RelationshipClassifier();
 
@@ -44,27 +46,17 @@ public class JavaParserAnalyzer implements SourceAnalyzer {
     );
 
     @Override
-    public List<FieldMapping> analyze(Path projectRoot) {
-        return analyze(projectRoot, new AnalysisContext());
-    }
-
-    @Override
-    public List<FieldMapping> analyze(Path projectRoot, AnalysisContext ctx) {
+    public List<FieldMapping> analyze(Path projectRoot, SymbolResolutionResult symbols) {
         configureSymbolSolver(projectRoot);
 
-        // Scan files and build class-package map FIRST so classPackageMap is available for enrichment
-        List<Path> javaFiles = scanner.scan(projectRoot, ctx);
+        List<FieldMapping> mappings = new ArrayList<>();
 
-        TypeEnrichingDecorator decorator = new TypeEnrichingDecorator(ctx.fieldTypeMap, ctx.classPackageMap);
-        List<FieldMapping> mappings  = new ArrayList<>();
-
-        for (Path file : javaFiles) {
+        for (Path file : symbols.javaFiles()) {
             try {
                 CompilationUnit cu       = StaticJavaParser.parse(file);
                 String          fileName = file.getFileName().toString();
                 for (MappingExtractor me : extractors) {
-                    List<FieldMapping> raw = me.extract(cu, fileName, extractor, classifier);
-                    mappings.addAll(decorator.enrich(raw));
+                    mappings.addAll(me.extract(cu, fileName, extractor, classifier));
                 }
             } catch (IOException e) {
                 log.warn("Failed to parse file: {} — {}", file, e.getMessage());
