@@ -14,6 +14,9 @@ import org.example.spi.SourceAnalyzer;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.stream.Collectors;
 
 /**
  * Orchestrates the full lineage analysis pipeline.
@@ -67,12 +70,39 @@ public class LineageAnalyzer {
         // Phase 2: Qualification (single pass, applies to all extractor output)
         List<FieldMapping> qualified = new FieldRefQualifier(symbols).qualify(raw);
 
+        // Phase 2.5: User-class filter — drop any mapping where either side
+        // lacks at least one class that exists in the analyzed project.
+        // Uses classPackageIndex (simpleName → FQN) as the authoritative set of user classes.
+        Set<String> userClassFqns = new HashSet<>(symbols.classPackageIndex().values());
+        List<FieldMapping> userOnly = qualified.stream()
+                .filter(m -> bothSidesHaveUserClass(m, userClassFqns))
+                .collect(Collectors.toList());
+
         // Phase 3: Aggregation
         LineageGraph graph = new LineageGraph();
-        qualified.forEach(graph::addMapping);
+        userOnly.forEach(graph::addMapping);
         graph.setInheritanceMap(symbols.inheritanceIndex());
 
         // Phase 4: Enrichment
         return expander.expand(graph.buildRelations());
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 2.5 helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Returns true if both sides have at least one class that exists in the
+     * analyzed project (i.e., appears in classPackageIndex).
+     *
+     * This is the authoritative definition of "user-defined class":
+     * any class whose source was scanned — no hardcoded package prefix lists needed.
+     */
+    private static boolean bothSidesHaveUserClass(FieldMapping m, Set<String> userClassFqns) {
+        boolean sourceHasUser = m.leftSide().fields().stream()
+                .anyMatch(f -> userClassFqns.contains(f.className()));
+        boolean sinkHasUser = m.rightSide().fields().stream()
+                .anyMatch(f -> userClassFqns.contains(f.className()));
+        return sourceHasUser && sinkHasUser;
     }
 }

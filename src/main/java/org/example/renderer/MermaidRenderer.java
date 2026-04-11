@@ -82,6 +82,8 @@ public class MermaidRenderer {
         sb.append("```mermaid\n");
         sb.append("flowchart LR\n");
 
+        // edgeKeys: dedup by (src, tgt, left-fields, right-fields, mode) — ignores mapping type
+        Set<String> edgeKeys  = new LinkedHashSet<>();
         Set<String> drawnEdges = new LinkedHashSet<>();
 
         for (ClassRelation rel : relations) {
@@ -103,22 +105,29 @@ public class MermaidRenderer {
                 if (m.mode() == org.example.model.MappingMode.TRANSITIVE_CLOSURE) {
                     continue;
                 }
-                
+
+                // Dedup key: same source/sink field pair + same direction = one edge
+                String dedupKey = src + "\0" + tgt + "\0"
+                        + m.leftSide().toString() + "\0"
+                        + m.rightSide().toString() + "\0"
+                        + m.mode();
+                if (!edgeKeys.add(dedupKey)) continue;
+
                 String label = buildLabel(m, isSelf);
-                
+
                 // Simplify composition/holding relationship labels to "has"
                 if (label.contains("holds") && label.contains("held")) {
                     label = "has";
                 }
-                
+
                 // Choose arrow style and color based on mapping mode
                 String edgeDef = switch (m.mode()) {
-                    case READ_PREDICATE -> 
-                        "    " + src + " -->|\"" + label + "\"| " + tgt + ":::readRel";  // Blue
-                    case WRITE_ASSIGNMENT -> 
-                        "    " + src + " -.->|\"" + label + "\"| " + tgt + ":::writeRel";  // Orange
-                    default -> 
-                        "    " + src + " -->|\"" + label + "\"| " + tgt;  // Default
+                    case READ_PREDICATE ->
+                        "    " + src + " -->|\"" + label + "\"| " + tgt + ":::readRel";
+                    case WRITE_ASSIGNMENT ->
+                        "    " + src + " -.->|\"" + label + "\"| " + tgt + ":::writeRel";
+                    default ->
+                        "    " + src + " -->|\"" + label + "\"| " + tgt;
                 };
                 drawnEdges.add(edgeDef);
             }

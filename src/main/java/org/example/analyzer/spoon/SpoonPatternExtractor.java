@@ -1,11 +1,9 @@
 package org.example.analyzer.spoon;
 
 import org.example.model.FieldMapping;
-import spoon.reflect.code.CtExpression;
 import spoon.reflect.declaration.CtExecutable;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * Single-responsibility extractor for one field-mapping pattern inside a Spoon AST.
@@ -20,11 +18,11 @@ public interface SpoonPatternExtractor {
 
     /**
      * @param method   the executable whose body is being inspected
-     * @param aliasMap local variable alias map for {@code method} (from SpoonAliasBuilder)
+     * @param ctx      execution context for {@code method} (built via ExecutionContext.forMethod)
      * @param helper   shared resolution utilities
      * @return discovered FieldMappings; never null, may be empty
      */
     List<FieldMapping> extract(CtExecutable<?> method,
-                               Map<String, CtExpression<?>> aliasMap,
+                               ExecutionContext ctx,
                                SpoonResolutionHelper helper);
 }

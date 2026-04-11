@@ -6,14 +6,12 @@ import org.example.spi.SourceAnalyzer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import spoon.reflect.CtModel;
-import spoon.reflect.code.CtExpression;
 import spoon.reflect.declaration.CtMethod;
 import spoon.reflect.declaration.CtType;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Spoon-based implementation of {@link SourceAnalyzer}.
@@ -53,11 +51,10 @@ public class SpoonAnalyzer implements SourceAnalyzer {
     // -------------------------------------------------------------------------
 
     private List<FieldMapping> analyzeExecutable(CtMethod<?> method, CtModel model) {
-        Map<String, CtExpression<?>> aliasMap = SpoonAliasBuilder.build(method);
-        if (aliasMap.isEmpty()) return List.of();
+        ExecutionContext ctx = ExecutionContext.forMethod(method);
 
         CallProjectionExtractor extractor = new CallProjectionExtractor();
-        extractor.extract(method, aliasMap, model);
+        extractor.extract(method, ctx, model);
         return extractor.results();
     }
 }

@@ -4,9 +4,9 @@
 
 | 项目 | 数值 |
 |---|---|
-| 涉及类关系对（直接） | 13 |
+| 涉及类关系对（直接） | 14 |
 | 探测型关联（READ） | 4 |
-| 动作型关联（WRITE） | 29 |
+| 动作型关联（WRITE） | 32 |
 | 推导关联（传递闭包） | 1 |
 
 ## 关联图谱
@@ -15,22 +15,15 @@
 flowchart LR
     linkStyle default stroke:#999,stroke-width:1px
     User -.->|"AE: User.name ≡ Employee.lastName"| Employee:::writeRel
-    User -.->|"PD: User.name ≡ Employee.lastName"| Employee:::writeRel
     User -->|"CP: format(User.id, User.phone) ≡ format(Order.userId, Order.phone)"| Order:::readRel
     Order -->|"AE: Order.orderId ≡ Invoice.refOrderId"| Invoice:::readRel
     Address -->|"PD: Address.zip ≡ User.areaCode"| User:::readRel
     User -.->|"AE: User.name ≡ PersonSummaryDTO.displayName"| PersonSummaryDTO:::writeRel
     User -.->|"AE: User.phone ≡ PersonSummaryDTO.mobile"| PersonSummaryDTO:::writeRel
     User -.->|"AE: User.tenantId ≡ PersonSummaryDTO.orgCode"| PersonSummaryDTO:::writeRel
-    User -.->|"PD: User.name ≡ PersonSummaryDTO.displayName"| PersonSummaryDTO:::writeRel
-    User -.->|"PD: User.phone ≡ PersonSummaryDTO.mobile"| PersonSummaryDTO:::writeRel
-    User -.->|"PD: User.tenantId ≡ PersonSummaryDTO.orgCode"| PersonSummaryDTO:::writeRel
     Employee -.->|"AE: Employee.fullName ≡ PersonSummaryDTO.displayName"| PersonSummaryDTO:::writeRel
     Employee -.->|"AE: Employee.departmentCode ≡ PersonSummaryDTO.mobile"| PersonSummaryDTO:::writeRel
     Employee -.->|"AE: Employee.employeeNo ≡ PersonSummaryDTO.orgCode"| PersonSummaryDTO:::writeRel
-    Employee -.->|"PD: Employee.fullName ≡ PersonSummaryDTO.displayName"| PersonSummaryDTO:::writeRel
-    Employee -.->|"PD: Employee.departmentCode ≡ PersonSummaryDTO.mobile"| PersonSummaryDTO:::writeRel
-    Employee -.->|"PD: Employee.employeeNo ≡ PersonSummaryDTO.orgCode"| PersonSummaryDTO:::writeRel
     OrderDTO -.->|"has"| Order:::writeRel
     Order -.->|"PD: Order.city ≡ Address.city"| Address:::writeRel
     UserOrderDTO -.->|"has"| User:::writeRel
@@ -40,6 +33,15 @@ flowchart LR
     Order -.->|"PD: Order.userId ≡ VipUser.id"| VipUser:::writeRel
     User -.->|"PD: User.id ≡ Invoice.buyerId"| Invoice:::writeRel
     VipUser -.->|"extends"| User:::inheritRel
+    classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
+    classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
+    classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
+```
+
+```mermaid
+flowchart LR
+    linkStyle default stroke:#999,stroke-width:1px
+    Item -.->|"PD: Item.item ≡ ItemDetail.item"| ItemDetail:::writeRel
     classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
     classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
     classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
@@ -125,6 +127,13 @@ flowchart LR
 | | *new Account(userOrderDTO.getUser().getPhone(), userOrderDTO.getUser().getId())* | | | |
 | `userId` | `User.id` | PARAMETERIZED | WRITE | `createAccountFromUser(constructor-call)` |
 | | *new Account(userOrderDTO.getUser().getPhone(), userOrderDTO.getUser().getId())* | | | |
+
+### ItemDetail
+
+| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+|---|---|---|---|---|---|
+| `item` | `Item.item` | PARAMETERIZED | WRITE | `testGeneric(builder)` |
+| | *ItemDetail.builder().item(item)* | | | |
 
 ### VipUser
 

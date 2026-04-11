@@ -1,5 +1,6 @@
 package org.example.analyzer.spoon.intra;
 
+import org.example.analyzer.spoon.ExecutionContext;
 import org.example.analyzer.spoon.SpoonPatternExtractor;
 import org.example.analyzer.spoon.SpoonResolutionHelper;
 import org.example.model.ExpressionSide;
@@ -16,7 +17,6 @@ import spoon.reflect.visitor.filter.TypeFilter;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Extracts field mappings from constructor invocations.
@@ -35,7 +35,7 @@ public class ConstructorCallExtractor implements SpoonPatternExtractor {
 
     @Override
     public List<FieldMapping> extract(CtExecutable<?> method,
-                                      Map<String, CtExpression<?>> aliasMap,
+                                      ExecutionContext ctx,
                                       SpoonResolutionHelper helper) {
         String location = method.getSimpleName() + "(constructor-call)";
         List<FieldMapping> results = new ArrayList<>();
@@ -52,13 +52,13 @@ public class ConstructorCallExtractor implements SpoonPatternExtractor {
                     List<CtParameter<?>> params = ctorDecl.getParameters();
                     int limit = Math.min(params.size(), args.size());
                     for (int i = 0; i < limit; i++) {
-                        emitIfValid(helper.extractSourceSide(args.get(i), aliasMap),
+                        emitIfValid(helper.extractSourceSide(args.get(i), ctx),
                                 sinkClass, params.get(i).getSimpleName(),
                                 ctorCall.toString(), location, results, helper);
                     }
                 } else {
                     for (int i = 0; i < args.size(); i++) {
-                        emitIfValid(helper.extractSourceSide(args.get(i), aliasMap),
+                        emitIfValid(helper.extractSourceSide(args.get(i), ctx),
                                 sinkClass, "param" + i,
                                 ctorCall.toString(), location, results, helper);
                     }

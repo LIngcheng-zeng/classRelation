@@ -19,6 +19,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Optional;
 
 /**
  * Shared resolution utilities for Spoon-based pattern extractors.
@@ -53,12 +54,17 @@ public class SpoonResolutionHelper {
     /** Resolves the return type of a getter invocation. */
     private final ClassNameResolverChain<CtInvocation<?>> getterReturnChain;
 
+    /** Strategy chain replacing collectFieldRefs. Built after exprNameChain/getterReturnChain. */
+    private final ExpressionResolverChain resolverChain;
+
     SpoonResolutionHelper(CtModel model) {
         this.model = model;
         // getterReturnChain must be built first; its last step calls resolveClassName()
         // which internally uses exprNameChain — safe because lambdas capture `this`.
         this.getterReturnChain = buildGetterReturnChain();
         this.exprNameChain     = buildExprNameChain();
+        // resolverChain built last; safe because lambdas capture `this` lazily.
+        this.resolverChain     = ExpressionResolverChain.standard(this);
     }
 
     public CtModel model() { return model; }
@@ -323,6 +329,17 @@ public class SpoonResolutionHelper {
     // Source side: expression → FieldRef list
     // -------------------------------------------------------------------------
 
+    /**
+     * Resolves an expression to its source FieldRefs using the ExecutionContext.
+     * Preferred over the aliasMap-based overload for new code.
+     */
+    public ExpressionSide extractSourceSide(CtExpression<?> expr, ExecutionContext ctx) {
+        List<FieldRef> refs = resolverChain.resolve(expr, ctx);
+        return new ExpressionSide(refs, "direct");
+    }
+
+    /** @deprecated use {@link #extractSourceSide(CtExpression, ExecutionContext)} */
+    @Deprecated
     public ExpressionSide extractSourceSide(CtExpression<?> expr, Map<String, CtExpression<?>> aliasMap) {
         List<FieldRef> refs = new ArrayList<>();
         collectFieldRefs(expr, refs, aliasMap, new HashSet<>());

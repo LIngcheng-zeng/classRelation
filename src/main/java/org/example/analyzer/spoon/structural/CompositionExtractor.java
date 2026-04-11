@@ -1,5 +1,6 @@
 package org.example.analyzer.spoon.structural;
 
+import org.example.analyzer.spoon.ExecutionContext;
 import org.example.analyzer.spoon.SpoonPatternExtractor;
 import org.example.analyzer.spoon.SpoonResolutionHelper;
 import org.example.model.ExpressionSide;
@@ -7,14 +8,13 @@ import org.example.model.FieldMapping;
 import org.example.model.FieldRef;
 import org.example.model.MappingMode;
 import org.example.model.MappingType;
-import spoon.reflect.code.CtExpression;
 import spoon.reflect.code.CtInvocation;
+import spoon.reflect.code.CtExpression;
 import spoon.reflect.declaration.CtExecutable;
 import spoon.reflect.visitor.filter.TypeFilter;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Detects composition / aggregation relationships by examining getter return types.
@@ -30,7 +30,7 @@ public class CompositionExtractor implements SpoonPatternExtractor {
 
     @Override
     public List<FieldMapping> extract(CtExecutable<?> method,
-                                      Map<String, CtExpression<?>> aliasMap,
+                                      ExecutionContext ctx,
                                       SpoonResolutionHelper helper) {
         String location = method.getSimpleName() + "(composition)";
         List<FieldMapping> results = new ArrayList<>();

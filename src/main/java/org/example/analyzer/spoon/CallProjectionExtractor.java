@@ -7,12 +7,10 @@ import org.example.analyzer.spoon.intra.DirectSetterExtractor;
 import org.example.analyzer.spoon.structural.CompositionExtractor;
 import org.example.model.FieldMapping;
 import spoon.reflect.CtModel;
-import spoon.reflect.code.CtExpression;
 import spoon.reflect.declaration.CtExecutable;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Orchestrates all Spoon-based field-mapping patterns for a single method execution.
@@ -25,10 +23,11 @@ import java.util.Map;
  *   inter      — {@link InterProceduralExtractor} (cross-method projection, depth-limited)
  *
  * All pattern extractors share a single {@link SpoonResolutionHelper} instance.
+ * The {@link ExecutionContext} replaces the flat aliasMap for scope-aware resolution.
  */
 class CallProjectionExtractor {
 
-    void extract(CtExecutable<?> method, Map<String, CtExpression<?>> aliasMap, CtModel model) {
+    void extract(CtExecutable<?> method, ExecutionContext ctx, CtModel model) {
         SpoonResolutionHelper helper = new SpoonResolutionHelper(model);
 
         List<SpoonPatternExtractor> patterns = List.of(
@@ -40,10 +39,10 @@ class CallProjectionExtractor {
 
         List<FieldMapping> results = new ArrayList<>();
         for (SpoonPatternExtractor p : patterns) {
-            results.addAll(p.extract(method, aliasMap, helper));
+            results.addAll(p.extract(method, ctx, helper));
         }
 
-        results.addAll(new InterProceduralExtractor(helper).extract(method, aliasMap));
+        results.addAll(new InterProceduralExtractor(helper).extract(method, ctx));
 
         this.results = results;
     }
