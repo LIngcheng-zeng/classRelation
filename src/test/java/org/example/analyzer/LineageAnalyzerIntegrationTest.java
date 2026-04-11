@@ -1,6 +1,7 @@
 package org.example.analyzer;
 
 import org.example.model.ClassRelation;
+import org.example.renderer.TableRenderer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -42,6 +43,12 @@ class LineageAnalyzerIntegrationTest {
             "测试项目应该存在: " + testProjectRoot);
         assertTrue(testProjectRoot.toFile().isDirectory(),
             "测试项目应该是目录");
+    }
+
+    @Test
+    void shouldRenderTable() {
+        List<ClassRelation> relations = analyzer.analyze(testProjectRoot);
+        System.out.println(new TableRenderer().render(relations));
     }
 
     @Test

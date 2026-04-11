@@ -4,9 +4,9 @@
 
 | 项目 | 数值 |
 |---|---|
-| 涉及类关系对（直接） | 11 |
+| 涉及类关系对（直接） | 13 |
 | 探测型关联（READ） | 4 |
-| 动作型关联（WRITE） | 17 |
+| 动作型关联（WRITE） | 29 |
 | 推导关联（传递闭包） | 1 |
 
 ## 关联图谱
@@ -19,6 +19,18 @@ flowchart LR
     User -->|"CP: format(User.id, User.phone) ≡ format(Order.userId, Order.phone)"| Order:::readRel
     Order -->|"AE: Order.orderId ≡ Invoice.refOrderId"| Invoice:::readRel
     Address -->|"PD: Address.zip ≡ User.areaCode"| User:::readRel
+    User -.->|"AE: User.name ≡ PersonSummaryDTO.displayName"| PersonSummaryDTO:::writeRel
+    User -.->|"AE: User.phone ≡ PersonSummaryDTO.mobile"| PersonSummaryDTO:::writeRel
+    User -.->|"AE: User.tenantId ≡ PersonSummaryDTO.orgCode"| PersonSummaryDTO:::writeRel
+    User -.->|"PD: User.name ≡ PersonSummaryDTO.displayName"| PersonSummaryDTO:::writeRel
+    User -.->|"PD: User.phone ≡ PersonSummaryDTO.mobile"| PersonSummaryDTO:::writeRel
+    User -.->|"PD: User.tenantId ≡ PersonSummaryDTO.orgCode"| PersonSummaryDTO:::writeRel
+    Employee -.->|"AE: Employee.fullName ≡ PersonSummaryDTO.displayName"| PersonSummaryDTO:::writeRel
+    Employee -.->|"AE: Employee.departmentCode ≡ PersonSummaryDTO.mobile"| PersonSummaryDTO:::writeRel
+    Employee -.->|"AE: Employee.employeeNo ≡ PersonSummaryDTO.orgCode"| PersonSummaryDTO:::writeRel
+    Employee -.->|"PD: Employee.fullName ≡ PersonSummaryDTO.displayName"| PersonSummaryDTO:::writeRel
+    Employee -.->|"PD: Employee.departmentCode ≡ PersonSummaryDTO.mobile"| PersonSummaryDTO:::writeRel
+    Employee -.->|"PD: Employee.employeeNo ≡ PersonSummaryDTO.orgCode"| PersonSummaryDTO:::writeRel
     OrderDTO -.->|"has"| Order:::writeRel
     Order -.->|"PD: Order.city ≡ Address.city"| Address:::writeRel
     UserOrderDTO -.->|"has"| User:::writeRel
@@ -53,84 +65,72 @@ flowchart LR
 
 ### Employee
 
-| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
 |---|---|---|---|---|---|
-| `Employee.lastName` | `User.name` | ATOMIC | WRITE | `RecursiveCallTest.java:28` |
+| `lastName` | `User.name` | ATOMIC | WRITE | `RecursiveCallTest.java:28` |
 | | *employee.setLastName(user.getName())* | | | |
-| `Employee.lastName` | `User.name` | PARAMETERIZED | WRITE | `iterateCall(direct-setter)` |
-| | *// 字段映射：user.name -> employee.lastName employee.setLastName(user.getName())* | | | |
 
 ### Order
 
-| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
 |---|---|---|---|---|---|
-| `Order.userId`, `Order.phone` | `User.id`, `User.phone` | COMPOSITE | READ | `CompositeProjectionTest.java:21` |
+| `userId, phone` | `User.id`, `User.phone` | COMPOSITE | READ | `CompositeProjectionTest.java:21` |
 | | *userAndPhone.equals(orderAndPhone)* | | | |
-| `Order.held` | `OrderDTO.holds` | PARAMETERIZED | WRITE | `buildAddressFromOrder(composition)` |
-| | *orderDTO.getOrder()* | | | |
-| `Order.held` | `OrderDTO.holds` | PARAMETERIZED | WRITE | `extractOrderId(composition)` |
-| | *userOrderDTO.getOrderDTO().getOrder()* | | | |
-| `Order.held` | `OrderDTO.holds` | PARAMETERIZED | WRITE | `testVipUserInheritedFields(composition)` |
-| | *orderDTO.getOrder()* | | | |
 
 ### Invoice
 
-| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
 |---|---|---|---|---|---|
-| `Invoice.refOrderId` | `Order.orderId` | ATOMIC | READ | `AtomicEqualityTest.java:19` |
-| | *order.getOrderId().equals(invoice.getRefOrderId())* | | | |
-| `Invoice.buyerId` | `User.id` | PARAMETERIZED | WRITE | `fillInvoice(projected)` |
+| `buyerId` | `User.id` | PARAMETERIZED | WRITE | `fillInvoice(projected)` |
 | | *// 这里建立映射：userId -> invoice.buyerId, orderId -> invoice.refOrderId invoice.setBuyerId(userId)* | | | |
-| `Invoice.buyerId` | `User.id` | PARAMETERIZED | WRITE | `fillInvoice(projected)` |
-| | *invoice.setBuyerId(userId)* | | | |
+| `refOrderId` | `Order.orderId` | ATOMIC | READ | `AtomicEqualityTest.java:19` |
+| | *order.getOrderId().equals(invoice.getRefOrderId())* | | | |
 
 ### User
 
-| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
 |---|---|---|---|---|---|
-| `User.areaCode` | `Address.zip` | PARAMETERIZED | READ | `NormalizationTest.java:16` | `toLowerCase()` |
+| `areaCode` | `Address.zip` | PARAMETERIZED | READ | `NormalizationTest.java:16` | `toLowerCase()` |
 | | *address.getZip().toLowerCase().equals(user.getAreaCode())* | | | |
-| `User.areaCode` | `Address.zip` | PARAMETERIZED | READ | `BuilderPatternTest.java:25` | `toLowerCase()` |
-| | *address.getZip().toLowerCase().equals(user.getAreaCode())* | | | |
-| `User.held` | `UserOrderDTO.holds` | PARAMETERIZED | WRITE | `createAccountFromUser(composition)` |
-| | *userOrderDTO.getUser()* | | | |
-| `User.held` | `UserOrderDTO.holds` | PARAMETERIZED | WRITE | `createAccountFromUser(composition)` |
-| | *userOrderDTO.getUser()* | | | |
-| `User.held` | `UserOrderDTO.holds` | PARAMETERIZED | WRITE | `extractUserPhone(composition)` |
-| | *userOrderDTO.getUser()* | | | |
+
+### PersonSummaryDTO
+
+| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+|---|---|---|---|---|---|
+| `displayName` | `User.name` | ATOMIC | WRITE | `MultiSourceMappingTest.java:20` |
+| | *dto.setDisplayName(user.getName())* | | | |
+|  | `Employee.fullName` | ATOMIC | WRITE | `MultiSourceMappingTest.java:28` |
+| | *dto.setDisplayName(emp.getFullName())* | | | |
+| `mobile` | `User.phone` | ATOMIC | WRITE | `MultiSourceMappingTest.java:21` |
+| | *dto.setMobile(user.getPhone())* | | | |
+|  | `Employee.departmentCode` | ATOMIC | WRITE | `MultiSourceMappingTest.java:29` |
+| | *dto.setMobile(emp.getDepartmentCode())* | | | |
+| `orgCode` | `User.tenantId` | ATOMIC | WRITE | `MultiSourceMappingTest.java:22` |
+| | *dto.setOrgCode(user.getTenantId())* | | | |
+|  | `Employee.employeeNo` | ATOMIC | WRITE | `MultiSourceMappingTest.java:30` |
+| | *dto.setOrgCode(emp.getEmployeeNo())* | | | |
 
 ### Address
 
-| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
 |---|---|---|---|---|---|
-| `Address.city` | `Order.city` | PARAMETERIZED | WRITE | `buildAddressFromOrder(builder)` |
+| `city` | `Order.city` | PARAMETERIZED | WRITE | `buildAddressFromOrder(builder)` |
 | | *Address.builder().city(orderDTO.getOrder().getCity())* | | | |
 
 ### Account
 
-| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
 |---|---|---|---|---|---|
-| `Account.fullMobile` | `User.phone` | PARAMETERIZED | WRITE | `createAccountFromUser(constructor-call)` |
+| `fullMobile` | `User.phone` | PARAMETERIZED | WRITE | `createAccountFromUser(constructor-call)` |
 | | *new Account(userOrderDTO.getUser().getPhone(), userOrderDTO.getUser().getId())* | | | |
-| `Account.userId` | `User.id` | PARAMETERIZED | WRITE | `createAccountFromUser(constructor-call)` |
+| `userId` | `User.id` | PARAMETERIZED | WRITE | `createAccountFromUser(constructor-call)` |
 | | *new Account(userOrderDTO.getUser().getPhone(), userOrderDTO.getUser().getId())* | | | |
-| `Account.fullMobile` | `User.phone` | PARAMETERIZED | WRITE | `createSimpleAccount(constructor-call)` |
-| | *new Account(user.getPhone(), user.getId())* | | | |
-| `Account.userId` | `User.id` | PARAMETERIZED | WRITE | `createSimpleAccount(constructor-call)` |
-| | *new Account(user.getPhone(), user.getId())* | | | |
-
-### OrderDTO
-
-| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
-|---|---|---|---|---|---|
-| `OrderDTO.held` | `UserOrderDTO.holds` | PARAMETERIZED | WRITE | `extractOrderId(composition)` |
-| | *userOrderDTO.getOrderDTO()* | | | |
 
 ### VipUser
 
-| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
 |---|---|---|---|---|---|
-| `VipUser.id` | `Order.userId` | PARAMETERIZED | WRITE | `testVipUserInheritedFields(direct-setter)` |
+| `id` | `Order.userId` | PARAMETERIZED | WRITE | `testVipUserInheritedFields(direct-setter)` |
 | | *// VipUser 继承自 User，可以使用 id 字段 vipUser.setId(orderDTO.getOrder().getUserId())* | | | |
 
 ## 推导关联（传递性闭包）
@@ -139,7 +139,7 @@ flowchart LR
 
 ### VipUser
 
-| 目标表字段 | 源表字段集合 | 推导路径 |
+| 目标字段 | 源表字段集合 | 推导路径 |
 |---|---|---|
-| `VipUser.id` | `User.id`, `User.phone` | *[User.id, User.phone] → [Order.userId, Order.phone] → VipUser.id* |
+| id | `User.id`, `User.phone` | *[User.id, User.phone] → [Order.userId, Order.phone] → VipUser.id* |
 

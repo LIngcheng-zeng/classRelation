@@ -16,7 +16,7 @@ import java.util.*;
  *   2. FQN + fieldName → field type simple name
  *   3. FQN → simple class name      — for display conversion
  *
- * Consumed by {@link org.example.analyzer.javaparser.TypeEnrichingDecorator}.
+ * Consumed by {@link org.example.resolution.FieldRefQualifier}.
  */
 public class FieldTypeMap {
 

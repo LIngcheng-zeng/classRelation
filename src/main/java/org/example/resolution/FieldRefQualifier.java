@@ -7,6 +7,7 @@ import org.example.model.FieldRef;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -91,7 +92,29 @@ public class FieldRefQualifier {
             return new FieldRef(fqn, ref.fieldName());
         }
 
+        // Phase 2.5: abbreviation/heuristic name — unique case-insensitive prefix match
+        // Handles variable-name capitalization: "emp" → "Emp" → resolves to "Employee"
+        String fqnByPrefix = resolveByPrefixMatch(className);
+        if (fqnByPrefix != null) {
+            log.debug("FieldRefQualifier phase2.5: prefix-matched [{} → {}]", className, fqnByPrefix);
+            return new FieldRef(fqnByPrefix, ref.fieldName());
+        }
+
         return ref;
+    }
+
+    /**
+     * Finds a unique class in classPackageIndex whose simple name starts with
+     * {@code candidate} (case-insensitive). Returns null if ambiguous or no match.
+     * Minimum candidate length of 3 guards against accidental single-letter matches.
+     */
+    private String resolveByPrefixMatch(String candidate) {
+        if (candidate == null || candidate.length() < 3) return null;
+        String lower = candidate.toLowerCase();
+        List<String> matches = classPackageIndex.keySet().stream()
+                .filter(k -> k.toLowerCase().startsWith(lower))
+                .collect(Collectors.toList());
+        return matches.size() == 1 ? classPackageIndex.get(matches.get(0)) : null;
     }
 
     /** True when className already is a fully-qualified name (contains dot, no parens). */

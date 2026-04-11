@@ -3,11 +3,16 @@ package org.example.renderer;
 import org.example.model.ClassRelation;
 import org.example.model.FieldMapping;
 import org.example.model.MappingMode;
+import org.example.util.ClassNameValidator;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.TreeMap;
 
 /**
  * Renders lineage analysis results as a single Markdown document.
@@ -100,55 +105,107 @@ public class MarkdownDocumentRenderer {
     }
 
     private void renderGroupedTable(StringBuilder sb, List<ClassRelation> rels, boolean derived) {
+        // Aggregate by target class
         Map<String, List<FieldMapping>> byTarget = new LinkedHashMap<>();
         for (ClassRelation rel : rels) {
-            byTarget.computeIfAbsent(rel.targetClass(), k -> new java.util.ArrayList<>())
+            byTarget.computeIfAbsent(rel.targetClass(), k -> new ArrayList<>())
                     .addAll(rel.mappings());
         }
+
         for (Map.Entry<String, List<FieldMapping>> entry : byTarget.entrySet()) {
-            String displayName = org.example.util.ClassNameValidator.extractSimpleName(entry.getKey());
+            List<FieldMapping> fieldMappings = entry.getValue().stream()
+                    .filter(m -> !isComposition(m))
+                    .toList();
+            if (fieldMappings.isEmpty()) continue;   // section has only composition relations
+
+            String displayName = ClassNameValidator.extractSimpleName(entry.getKey());
             sb.append("### ").append(displayName).append("\n\n");
+
             if (derived) {
-                sb.append("| 目标表字段 | 源表字段集合 | 推导路径 |\n");
+                sb.append("| 目标字段 | 源表字段集合 | 推导路径 |\n");
                 sb.append("|---|---|---|\n");
-            } else {
-                sb.append("| 目标表字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |\n");
-                sb.append("|---|---|---|---|---|---|\n");
-            }
-            for (FieldMapping m : entry.getValue()) {
-                String sink    = formatSide(m.rightSide());
-                String source  = formatSide(m.leftSide());
-                String rawExpr = escape(m.rawExpression());
-                if (derived) {
-                    sb.append("| ").append(sink)
-                      .append(" | ").append(source)
-                      .append(" | *").append(rawExpr).append("* |\n");
-                } else {
-                    String type = m.type().name();
-                    String mode = m.mode() == MappingMode.WRITE_ASSIGNMENT ? "WRITE" : "READ";
-                    String loc  = m.location();
-                    String norm = m.normalization() != null && !m.normalization().isEmpty()
-                            ? String.join(", ", m.normalization())
-                            : "";
-                    sb.append("| ").append(sink)
-                      .append(" | ").append(source)
-                      .append(" | ").append(type)
-                      .append(" | ").append(mode)
-                      .append(" | `").append(loc).append("` |")
-                      .append(norm.isEmpty() ? "" : " `" + norm + "` |")
-                      .append("\n");
-                    sb.append("| | *" + rawExpr + "* | | | |\n");
+                for (FieldMapping m : fieldMappings) {
+                    sb.append("| ").append(formatSinkField(m.rightSide()))
+                      .append(" | ").append(formatSide(m.leftSide()))
+                      .append(" | *").append(escape(m.rawExpression())).append("* |\n");
                 }
+            } else {
+                sb.append("| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |\n");
+                sb.append("|---|---|---|---|---|---|\n");
+                renderDedupedRows(sb, fieldMappings);
             }
             sb.append("\n");
         }
     }
 
+    /**
+     * Renders mappings grouped by sink field (alphabetical), deduplicating
+     * (sinkField, sourceField) pairs that appear from multiple code paths.
+     * Continuation rows (same sink field, additional source) leave the sink cell blank.
+     */
+    private void renderDedupedRows(StringBuilder sb, List<FieldMapping> mappings) {
+        // Sort by sink field name alphabetically
+        Map<String, List<FieldMapping>> bySink = new TreeMap<>();
+        for (FieldMapping m : mappings) {
+            bySink.computeIfAbsent(formatSinkField(m.rightSide()), k -> new ArrayList<>()).add(m);
+        }
+
+        for (Map.Entry<String, List<FieldMapping>> sinkEntry : bySink.entrySet()) {
+            String sinkDisplay = sinkEntry.getKey();
+            Set<String> seenSources = new LinkedHashSet<>();
+            boolean firstRow = true;
+
+            for (FieldMapping m : sinkEntry.getValue()) {
+                String sourceDisplay  = formatSide(m.leftSide());
+                String sourceDedupKey = dedupKey(m.leftSide());
+                if (!seenSources.add(sourceDedupKey)) continue;
+
+                String sinkCell = firstRow ? "`" + sinkDisplay + "`" : "";
+                String type = m.type().name();
+                String mode = m.mode() == MappingMode.WRITE_ASSIGNMENT ? "WRITE" : "READ";
+                String loc  = m.location();
+                String norm = m.normalization() != null && !m.normalization().isEmpty()
+                        ? String.join(", ", m.normalization()) : "";
+
+                sb.append("| ").append(sinkCell)
+                  .append(" | ").append(sourceDisplay)
+                  .append(" | ").append(type)
+                  .append(" | ").append(mode)
+                  .append(" | `").append(loc).append("` |")
+                  .append(norm.isEmpty() ? "" : " `" + norm + "` |")
+                  .append("\n");
+                sb.append("| | *").append(escape(m.rawExpression())).append("* | | | |\n");
+                firstRow = false;
+            }
+        }
+    }
+
+    /** Source side: ClassName.fieldName (with backticks). */
     private String formatSide(org.example.model.ExpressionSide side) {
         if (side == null || side.isEmpty()) return "`<unknown>`";
         return String.join(", ", side.fields().stream()
                 .map(f -> "`" + f.toString() + "`")
                 .toList());
+    }
+
+    /** Sink side: field name only — class is shown in the section header. */
+    private String formatSinkField(org.example.model.ExpressionSide side) {
+        if (side == null || side.isEmpty()) return "<unknown>";
+        return String.join(", ", side.fields().stream()
+                .map(f -> f.fieldName())
+                .toList());
+    }
+
+    /** Dedup key: simple class name + field name, to collapse FQN vs simple-name duplicates. */
+    private String dedupKey(org.example.model.ExpressionSide side) {
+        if (side == null || side.isEmpty()) return "<unknown>";
+        return String.join(", ", side.fields().stream()
+                .map(f -> ClassNameValidator.extractSimpleName(f.className()) + "." + f.fieldName())
+                .toList());
+    }
+
+    private boolean isComposition(FieldMapping m) {
+        return "composition-sink".equals(m.rightSide().operatorDesc());
     }
 
     private String escape(String s) {
