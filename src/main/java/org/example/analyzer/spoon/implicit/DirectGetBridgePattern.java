@@ -29,10 +29,6 @@ import java.util.Optional;
  * Cross-file Maps are resolved via {@link CrossFileMapResolver}:
  *   - the target map may be a field, parameter, getter call, or static of another class.
  *
- * Emits two FieldMappings per bridge:
- *   1. Key equality:   argField ≡ mapKeyField       [MAP_JOIN · READ_PREDICATE]
- *   2. Value mapping:  argField source → mapValueField  [MAP_JOIN · WRITE_ASSIGNMENT]
- *      (only when the value has a concrete field, not a "#self" or "#inferred" sentinel)
  */
 public class DirectGetBridgePattern implements BridgeDetector {
 
@@ -66,20 +62,6 @@ public class DirectGetBridgePattern implements BridgeDetector {
                     inv.toString(),
                     location
             ));
-
-            // Value derivation — skip sentinels used by groupingBy and type-inference fallback
-            FieldProvenance mapValue = mapFact.get().valueProvenance();
-            String valueField = mapValue.originField();
-            if (!valueField.equals("#self") && !valueField.equals("#inferred")) {
-                results.add(new FieldMapping(
-                        toSide(argProv.get()),
-                        toSide(mapValue),
-                        MappingType.MAP_JOIN,
-                        MappingMode.WRITE_ASSIGNMENT,
-                        inv.toString(),
-                        location
-                ));
-            }
         }
 
         return results;

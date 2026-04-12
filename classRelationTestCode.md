@@ -6,7 +6,7 @@
 |---|---|
 | 涉及类关系对（直接） | 21 |
 | 探测型关联（READ） | 11 |
-| 动作型关联（WRITE） | 36 |
+| 动作型关联（WRITE） | 32 |
 | 推导关联（传递闭包） | 1 |
 
 ## 关联图谱
@@ -42,7 +42,6 @@ flowchart LR
 flowchart LR
     linkStyle default stroke:#999,stroke-width:1px
     CrossFileModel2 -->|"MJ: CrossFileModel2.key ≡ CrossFileModel.key"| CrossFileModel:::readRel
-    CrossFileModel2 -.->|"MJ: CrossFileModel2.key ≡ CrossFileModel.name"| CrossFileModel:::writeRel
     classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
     classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
     classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
@@ -70,7 +69,6 @@ flowchart LR
 flowchart LR
     linkStyle default stroke:#999,stroke-width:1px
     PurchaseOrder -->|"MJ: PurchaseOrder.supplierRef ≡ Supplier.supplierCode"| Supplier:::readRel
-    PurchaseOrder -.->|"MJ: PurchaseOrder.supplierRef ≡ Supplier.region"| Supplier:::writeRel
     classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
     classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
     classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
@@ -80,7 +78,6 @@ flowchart LR
 flowchart LR
     linkStyle default stroke:#999,stroke-width:1px
     OrderLine -->|"MJ: OrderLine.productRef ≡ Product.productCode"| Product:::readRel
-    OrderLine -.->|"MJ: OrderLine.productRef ≡ Product.productName"| Product:::writeRel
     classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
     classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
     classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
@@ -90,7 +87,6 @@ flowchart LR
 flowchart LR
     linkStyle default stroke:#999,stroke-width:1px
     Payment -->|"MJ: Payment.refContractNo ≡ Contract.contractNo"| Contract:::readRel
-    Payment -.->|"MJ: Payment.refContractNo ≡ Contract.clientId"| Contract:::writeRel
     classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
     classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
     classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
@@ -201,8 +197,6 @@ flowchart LR
 |---|---|---|---|---|---|
 | `key` | `CrossFileModel2.key` | MAP_JOIN | READ | `testCrossFile(implicit-map-join)` |
 | | *CrossFileTest.model1Map.get(crossFileModel2.getKey())* | | | |
-| `name` | `CrossFileModel2.key` | MAP_JOIN | WRITE | `testCrossFile(implicit-map-join)` |
-| | *CrossFileTest.model1Map.get(crossFileModel2.getKey())* | | | |
 
 ### ItemDetail
 
@@ -222,8 +216,6 @@ flowchart LR
 
 | 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
 |---|---|---|---|---|---|
-| `region` | `PurchaseOrder.supplierRef` | MAP_JOIN | WRITE | `testDirectGetterBridge(implicit-map-join)` |
-| | *supplierRegionMap.get(purchaseOrder.getSupplierRef())* | | | |
 | `supplierCode` | `PurchaseOrder.supplierRef` | MAP_JOIN | READ | `testDirectGetterBridge(implicit-map-join)` |
 | | *supplierRegionMap.get(purchaseOrder.getSupplierRef())* | | | |
 
@@ -233,15 +225,11 @@ flowchart LR
 |---|---|---|---|---|---|
 | `productCode` | `OrderLine.productRef` | MAP_JOIN | READ | `testExplicitPutGet(implicit-map-join)` |
 | | *productNameMap.get(orderLine.getProductRef())* | | | |
-| `productName` | `OrderLine.productRef` | MAP_JOIN | WRITE | `testExplicitPutGet(implicit-map-join)` |
-| | *productNameMap.get(orderLine.getProductRef())* | | | |
 
 ### Contract
 
 | 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
 |---|---|---|---|---|---|
-| `clientId` | `Payment.refContractNo` | MAP_JOIN | WRITE | `testGetterAssignmentBridge(implicit-map-join)` |
-| | *contractClientMap.get(lookupKey)* | | | |
 | `contractNo` | `Payment.refContractNo` | MAP_JOIN | READ | `testGetterAssignmentBridge(implicit-map-join)` |
 | | *contractClientMap.get(lookupKey)* | | | |
 
