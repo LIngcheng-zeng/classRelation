@@ -4,9 +4,9 @@
 
 | 项目 | 数值 |
 |---|---|
-| 涉及类关系对（直接） | 14 |
-| 探测型关联（READ） | 4 |
-| 动作型关联（WRITE） | 32 |
+| 涉及类关系对（直接） | 20 |
+| 探测型关联（READ） | 10 |
+| 动作型关联（WRITE） | 36 |
 | 推导关联（传递闭包） | 1 |
 
 ## 关联图谱
@@ -42,6 +42,64 @@ flowchart LR
 flowchart LR
     linkStyle default stroke:#999,stroke-width:1px
     Item -.->|"PD: Item.item ≡ ItemDetail.item"| ItemDetail:::writeRel
+    classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
+    classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
+    classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
+```
+
+```mermaid
+flowchart LR
+    linkStyle default stroke:#999,stroke-width:1px
+    Enterprise -->|"MJ: Enterprise.name ≡ Bottom.manufacturer"| Bottom:::readRel
+    Enterprise -.->|"MJ: Enterprise.product ≡ Bottom.image"| Bottom:::writeRel
+    classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
+    classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
+    classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
+```
+
+```mermaid
+flowchart LR
+    linkStyle default stroke:#999,stroke-width:1px
+    PurchaseOrder -->|"MJ: PurchaseOrder.supplierRef ≡ Supplier.supplierCode"| Supplier:::readRel
+    PurchaseOrder -.->|"MJ: PurchaseOrder.supplierRef ≡ Supplier.region"| Supplier:::writeRel
+    classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
+    classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
+    classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
+```
+
+```mermaid
+flowchart LR
+    linkStyle default stroke:#999,stroke-width:1px
+    OrderLine -->|"MJ: OrderLine.productRef ≡ Product.productCode"| Product:::readRel
+    OrderLine -.->|"MJ: OrderLine.productRef ≡ Product.productName"| Product:::writeRel
+    classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
+    classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
+    classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
+```
+
+```mermaid
+flowchart LR
+    linkStyle default stroke:#999,stroke-width:1px
+    Payment -->|"MJ: Payment.refContractNo ≡ Contract.contractNo"| Contract:::readRel
+    Payment -.->|"MJ: Payment.refContractNo ≡ Contract.clientId"| Contract:::writeRel
+    classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
+    classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
+    classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
+```
+
+```mermaid
+flowchart LR
+    linkStyle default stroke:#999,stroke-width:1px
+    Department -->|"MJ: Department.departmentId ≡ Staff.deptCode"| Staff:::readRel
+    classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
+    classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
+    classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
+```
+
+```mermaid
+flowchart LR
+    linkStyle default stroke:#999,stroke-width:1px
+    Goods -->|"MJ: Goods.catalogRef ≡ Catalog.catalogCode"| Catalog:::readRel
     classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
     classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
     classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
@@ -134,6 +192,56 @@ flowchart LR
 |---|---|---|---|---|---|
 | `item` | `Item.item` | PARAMETERIZED | WRITE | `testGeneric(builder)` |
 | | *ItemDetail.builder().item(item)* | | | |
+
+### Bottom
+
+| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+|---|---|---|---|---|---|
+| `image` | `Enterprise.product` | MAP_JOIN | WRITE | `testGeneric(implicit-map-join)` |
+| | *nameMapProduct.forEach((name, product) -> {     productMapImg.put(product, nameMapImg.get(name)); })* | | | |
+| `manufacturer` | `Enterprise.name` | MAP_JOIN | READ | `testGeneric(implicit-map-join)` |
+| | *nameMapProduct.forEach((name, product) -> {     productMapImg.put(product, nameMapImg.get(name)); })* | | | |
+
+### Supplier
+
+| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+|---|---|---|---|---|---|
+| `region` | `PurchaseOrder.supplierRef` | MAP_JOIN | WRITE | `testDirectGetterBridge(implicit-map-join)` |
+| | *supplierRegionMap.get(purchaseOrder.getSupplierRef())* | | | |
+| `supplierCode` | `PurchaseOrder.supplierRef` | MAP_JOIN | READ | `testDirectGetterBridge(implicit-map-join)` |
+| | *supplierRegionMap.get(purchaseOrder.getSupplierRef())* | | | |
+
+### Product
+
+| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+|---|---|---|---|---|---|
+| `productCode` | `OrderLine.productRef` | MAP_JOIN | READ | `testExplicitPutGet(implicit-map-join)` |
+| | *productNameMap.get(orderLine.getProductRef())* | | | |
+| `productName` | `OrderLine.productRef` | MAP_JOIN | WRITE | `testExplicitPutGet(implicit-map-join)` |
+| | *productNameMap.get(orderLine.getProductRef())* | | | |
+
+### Contract
+
+| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+|---|---|---|---|---|---|
+| `clientId` | `Payment.refContractNo` | MAP_JOIN | WRITE | `testGetterAssignmentBridge(implicit-map-join)` |
+| | *contractClientMap.get(lookupKey)* | | | |
+| `contractNo` | `Payment.refContractNo` | MAP_JOIN | READ | `testGetterAssignmentBridge(implicit-map-join)` |
+| | *contractClientMap.get(lookupKey)* | | | |
+
+### Staff
+
+| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+|---|---|---|---|---|---|
+| `deptCode` | `Department.departmentId` | MAP_JOIN | READ | `testGroupingByBridge(implicit-map-join)` |
+| | *deptMap.get(department.getDepartmentId())* | | | |
+
+### Catalog
+
+| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+|---|---|---|---|---|---|
+| `catalogCode` | `Goods.catalogRef` | MAP_JOIN | READ | `testStreamFilterEquality(stream-filter-equals)` |
+| | *g.getCatalogRef().equals(catalog.getCatalogCode())* | | | |
 
 ### VipUser
 

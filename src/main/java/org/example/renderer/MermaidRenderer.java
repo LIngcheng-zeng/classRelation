@@ -162,6 +162,7 @@ public class MermaidRenderer {
             case ATOMIC        -> "AE";
             case COMPOSITE     -> "CP";
             case PARAMETERIZED -> "PD";
+            case MAP_JOIN      -> "MJ";
         };
     }
 

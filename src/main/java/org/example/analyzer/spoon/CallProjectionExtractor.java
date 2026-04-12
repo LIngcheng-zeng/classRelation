@@ -1,5 +1,6 @@
 package org.example.analyzer.spoon;
 
+import org.example.analyzer.spoon.implicit.ImplicitEqualityExtractor;
 import org.example.analyzer.spoon.inter.InterProceduralExtractor;
 import org.example.analyzer.spoon.intra.BuilderChainExtractor;
 import org.example.analyzer.spoon.intra.ConstructorCallExtractor;
@@ -34,7 +35,8 @@ class CallProjectionExtractor {
                 new CompositionExtractor(),
                 new ConstructorCallExtractor(),
                 new BuilderChainExtractor(),
-                new DirectSetterExtractor()
+                new DirectSetterExtractor(),
+                new ImplicitEqualityExtractor()
         );
 
         List<FieldMapping> results = new ArrayList<>();

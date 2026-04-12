@@ -225,6 +225,90 @@ class LineageAnalyzerIntegrationTest {
             "分析不应因递归方法而失败");
     }
 
+    // ── MAP_JOIN 隐式等值断言 ─────────────────────────────────────────────────
+
+    @Test
+    void shouldDetectMapJoinImplicitEquality() {
+        List<ClassRelation> relations = analyzer.analyze(testProjectRoot);
+
+        boolean hasMapJoin = relations.stream()
+                .flatMap(r -> r.mappings().stream())
+                .anyMatch(m -> "MAP_JOIN".equals(m.type().name()));
+        assertTrue(hasMapJoin, "应该检测到 MAP_JOIN 类型的隐式等值关系");
+    }
+
+    @Test
+    void shouldDetectGroupingByBridge() {
+        List<ClassRelation> relations = analyzer.analyze(testProjectRoot);
+
+        // groupingBy(Staff::getDeptCode) + map.get(department.getDepartmentId())
+        // → Department.departmentId (lookup arg) ≡ Staff.deptCode (map key)
+        boolean found = relations.stream()
+                .flatMap(r -> r.mappings().stream())
+                .anyMatch(m -> "MAP_JOIN".equals(m.type().name())
+                        && m.leftSide().fields().stream().anyMatch(f -> "departmentId".equals(f.fieldName()))
+                        && m.rightSide().fields().stream().anyMatch(f -> "deptCode".equals(f.fieldName())));
+        assertTrue(found, "应该检测到 Staff.deptCode ≡ Department.departmentId（groupingBy 桥接）");
+    }
+
+    @Test
+    void shouldDetectExplicitPutBridge() {
+        List<ClassRelation> relations = analyzer.analyze(testProjectRoot);
+
+        // map.put(product.getProductCode(), ...) + map.get(orderLine.getProductRef())
+        // → OrderLine.productRef (lookup arg) ≡ Product.productCode (map key)
+        boolean found = relations.stream()
+                .flatMap(r -> r.mappings().stream())
+                .anyMatch(m -> "MAP_JOIN".equals(m.type().name())
+                        && m.leftSide().fields().stream().anyMatch(f -> "productRef".equals(f.fieldName()))
+                        && m.rightSide().fields().stream().anyMatch(f -> "productCode".equals(f.fieldName())));
+        assertTrue(found, "应该检测到 Product.productCode ≡ OrderLine.productRef（显式 put 桥接）");
+    }
+
+    @Test
+    void shouldDetectGetterAssignmentBridge() {
+        List<ClassRelation> relations = analyzer.analyze(testProjectRoot);
+
+        // String lookupKey = payment.getRefContractNo(); contractMap.get(lookupKey)
+        // → Payment.refContractNo ≡ Contract.contractNo
+        boolean found = relations.stream()
+                .flatMap(r -> r.mappings().stream())
+                .anyMatch(m -> "MAP_JOIN".equals(m.type().name())
+                        && m.leftSide().fields().stream().anyMatch(f -> "refContractNo".equals(f.fieldName()))
+                        && m.rightSide().fields().stream().anyMatch(f -> "contractNo".equals(f.fieldName())));
+        assertTrue(found, "应该检测到 Payment.refContractNo ≡ Contract.contractNo（getter 赋值变量桥接）");
+    }
+
+    @Test
+    void shouldDetectStreamFilterEquality() {
+        List<ClassRelation> relations = analyzer.analyze(testProjectRoot);
+
+        // filter(g -> g.getCatalogRef().equals(catalog.getCatalogCode()))
+        // → Goods.catalogRef ≡ Catalog.catalogCode
+        boolean found = relations.stream()
+                .flatMap(r -> r.mappings().stream())
+                .anyMatch(m -> "MAP_JOIN".equals(m.type().name())
+                        && m.leftSide().fields().stream().anyMatch(f -> "catalogRef".equals(f.fieldName()))
+                        && m.rightSide().fields().stream().anyMatch(f -> "catalogCode".equals(f.fieldName())));
+        assertTrue(found, "应该检测到 Goods.catalogRef ≡ Catalog.catalogCode（stream filter equals 桥接）");
+    }
+
+    @Test
+    void shouldDetectDirectGetterBridge() {
+        List<ClassRelation> relations = analyzer.analyze(testProjectRoot);
+
+        // toMap(Supplier::getSupplierCode, ...) + map.get(purchaseOrder.getSupplierRef())
+        // → Supplier.supplierCode ≡ PurchaseOrder.supplierRef
+        boolean found = relations.stream()
+                .flatMap(r -> r.mappings().stream())
+                .anyMatch(m -> "MAP_JOIN".equals(m.type().name())
+                        && m.leftSide().fields().stream().anyMatch(f -> "supplierRef".equals(f.fieldName()))
+                        && m.rightSide().fields().stream().anyMatch(f -> "supplierCode".equals(f.fieldName())));
+        assertTrue(found, "应该检测到 PurchaseOrder.supplierRef ≡ Supplier.supplierCode（直接 getter 桥接）");
+    }
+
+    // ── 原有测试 ─────────────────────────────────────────────────────────────
+
     @Test
     void shouldProduceMeaningfulResults() {
         List<ClassRelation> relations = analyzer.analyze(testProjectRoot);
