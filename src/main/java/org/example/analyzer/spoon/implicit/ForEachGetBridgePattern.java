@@ -93,7 +93,10 @@ public class ForEachGetBridgePattern implements KeyUsagePattern {
                 String location = method.getSimpleName() + "(implicit-map-join)";
                 String rawExpr  = inv.toString();
 
-                // Mapping 1: key equality  outerKeyField ≡ innerKeyField
+                // Key equality only: outerKeyField ≡ innerKeyField
+                // Value-to-value associations are NOT emitted here — the forEach bridge
+                // only proves key equality. Any value write relationship (e.g. put(v, ...))
+                // is captured separately by ExplicitMapPutPattern.
                 results.add(new FieldMapping(
                         toSide(keyParamProvenance),
                         toSide(innerKey),
@@ -102,20 +105,6 @@ public class ForEachGetBridgePattern implements KeyUsagePattern {
                         rawExpr,
                         location
                 ));
-
-                // Mapping 2: derived value association  outerValue → innerValue
-                FieldProvenance outerValue = outerFact.get().valueProvenance();
-                FieldProvenance innerValue = innerFact.get().valueProvenance();
-                if (!outerValue.isSameOrigin(innerValue)) {
-                    results.add(new FieldMapping(
-                            toSide(outerValue),
-                            toSide(innerValue),
-                            MappingType.MAP_JOIN,
-                            MappingMode.WRITE_ASSIGNMENT,
-                            rawExpr,
-                            location
-                    ));
-                }
             }
         }
 

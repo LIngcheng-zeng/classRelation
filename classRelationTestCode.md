@@ -6,7 +6,7 @@
 |---|---|
 | 涉及类关系对（直接） | 20 |
 | 探测型关联（READ） | 10 |
-| 动作型关联（WRITE） | 36 |
+| 动作型关联（WRITE） | 35 |
 | 推导关联（传递闭包） | 1 |
 
 ## 关联图谱
@@ -51,7 +51,6 @@ flowchart LR
 flowchart LR
     linkStyle default stroke:#999,stroke-width:1px
     Enterprise -->|"MJ: Enterprise.name ≡ Bottom.manufacturer"| Bottom:::readRel
-    Enterprise -.->|"MJ: Enterprise.product ≡ Bottom.image"| Bottom:::writeRel
     classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
     classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
     classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
@@ -197,8 +196,6 @@ flowchart LR
 
 | 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
 |---|---|---|---|---|---|
-| `image` | `Enterprise.product` | MAP_JOIN | WRITE | `testGeneric(implicit-map-join)` |
-| | *nameMapProduct.forEach((name, product) -> {     productMapImg.put(product, nameMapImg.get(name)); })* | | | |
 | `manufacturer` | `Enterprise.name` | MAP_JOIN | READ | `testGeneric(implicit-map-join)` |
 | | *nameMapProduct.forEach((name, product) -> {     productMapImg.put(product, nameMapImg.get(name)); })* | | | |
 
