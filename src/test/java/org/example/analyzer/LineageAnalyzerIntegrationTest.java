@@ -307,6 +307,53 @@ class LineageAnalyzerIntegrationTest {
         assertTrue(found, "应该检测到 PurchaseOrder.supplierRef ≡ Supplier.supplierCode（直接 getter 桥接）");
     }
 
+    // ── 跨文件 MAP_JOIN 断言 ──────────────────────────────────────────────────
+
+    @Test
+    void shouldDetectCrossFileFieldMapBridge() {
+        List<ClassRelation> relations = analyzer.analyze(testProjectRoot);
+
+        // orderIndexService.getOrderIndex().get(invoice.getRefOrderId())
+        // OrderIndexService.orderIndex 由 toMap(Order::getOrderId, ...) 建立，通过 getter 跨类访问
+        // → Invoice.refOrderId ≡ Order.orderId
+        boolean found = relations.stream()
+                .flatMap(r -> r.mappings().stream())
+                .anyMatch(m -> "MAP_JOIN".equals(m.type().name())
+                        && m.leftSide().fields().stream().anyMatch(f -> "refOrderId".equals(f.fieldName()))
+                        && m.rightSide().fields().stream().anyMatch(f -> "orderId".equals(f.fieldName())));
+        assertTrue(found, "应该检测到 Invoice.refOrderId ≡ Order.orderId（跨文件实例字段 getter 桥接）");
+    }
+
+    @Test
+    void shouldDetectCrossFileParameterMapBridge() {
+        List<ClassRelation> relations = analyzer.analyze(testProjectRoot);
+
+        // enterpriseMap.get(invoice.getBuyerId()) — Map<String, Enterprise> 作为参数传入
+        // 泛型推断：key = String/#inferred；Invoice.buyerId 作为查找 key
+        // → 产生 MAP_JOIN（Invoice.buyerId 一侧有具体来源，另一侧为 #inferred 哨兵）
+        boolean found = relations.stream()
+                .flatMap(r -> r.mappings().stream())
+                .anyMatch(m -> "MAP_JOIN".equals(m.type().name())
+                        && (m.leftSide().fields().stream().anyMatch(f -> "buyerId".equals(f.fieldName()))
+                         || m.rightSide().fields().stream().anyMatch(f -> "buyerId".equals(f.fieldName()))));
+        assertTrue(found, "应该检测到包含 Invoice.buyerId 的 MAP_JOIN（跨文件参数 Map 泛型推断桥接）");
+    }
+
+    @Test
+    void shouldDetectCrossFileStaticMapBridge() {
+        List<ClassRelation> relations = analyzer.analyze(testProjectRoot);
+
+        // BottomCacheHolder.BOTTOM_MAP.get(employee.getDepartmentCode())
+        // BOTTOM_MAP 由 toMap(Bottom::getName, Bottom::getDescription) 建立
+        // → Employee.departmentCode ≡ Bottom.name
+        boolean found = relations.stream()
+                .flatMap(r -> r.mappings().stream())
+                .anyMatch(m -> "MAP_JOIN".equals(m.type().name())
+                        && m.leftSide().fields().stream().anyMatch(f -> "departmentCode".equals(f.fieldName()))
+                        && m.rightSide().fields().stream().anyMatch(f -> "name".equals(f.fieldName())));
+        assertTrue(found, "应该检测到 Employee.departmentCode ≡ Bottom.name（跨文件静态字段 Map 桥接）");
+    }
+
     // ── 原有测试 ─────────────────────────────────────────────────────────────
 
     @Test

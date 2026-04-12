@@ -12,73 +12,68 @@ import java.util.List;
 /**
  * Orchestrates the two-phase implicit equality detection pipeline.
  *
- * Implements {@link SpoonPatternExtractor} so it plugs directly into
- * {@link org.example.analyzer.spoon.CallProjectionExtractor} alongside
- * existing pattern extractors.
+ * Changes from the original design:
  *
- * Phase 1 — collectMapFacts:
- *   Each registered {@link KeyUsagePattern} scans the method body and populates
- *   the {@link ProvenanceContext} with {@link org.example.model.MapFact}s.
- *   All patterns run before any bridge detection, so later patterns can see
- *   facts produced by earlier ones.
+ *   1. Single-pass AST scan — {@link MethodScanResult#of} collects all relevant
+ *      node types in one {@link spoon.reflect.visitor.CtScanner} traversal;
+ *      all patterns receive the pre-collected lists instead of calling
+ *      {@code getElements()} independently.
  *
- * Phase 2 — detectBridges:
- *   Each registered pattern inspects the fully-populated ProvenanceContext to
- *   find implicit equalities and emit {@link FieldMapping}s.
+ *   2. Interface split — {@link MapFactCollector} for Phase 1,
+ *      {@link BridgeDetector} for Phase 2. No more empty stub implementations.
  *
- * To add a new implicit-equality pattern:
- *   1. Implement {@link KeyUsagePattern}.
- *   2. Add an instance to the {@code patterns} list in this class.
+ *   3. Cross-file resolution — a {@link GlobalMapRegistry} (built once per batch
+ *      by the caller) is passed to each {@link BridgeDetector} via a
+ *      {@link CrossFileMapResolver}, enabling Map facts defined in other classes
+ *      (fields, method returns, statics) to be resolved at bridge-detection time.
+ *
+ * To add a new pattern:
+ *   - Implement {@link MapFactCollector} and/or {@link BridgeDetector}.
+ *   - Add an instance to {@code collectors} or {@code detectors} below.
  *   No other change required.
  */
 public class ImplicitEqualityExtractor implements SpoonPatternExtractor {
 
-    /**
-     * Registered patterns in execution order.
-     *
-     * Phase 1 (collectMapFacts) runs all patterns before Phase 2, so every
-     * MapFact and variable provenance is available to all bridge detectors.
-     *
-     * Phase 1 patterns (MapFact / provenance collectors):
-     *   - CollectorsToMapPattern       stream.collect(Collectors.toMap(A::getX, A::getY))
-     *   - GroupingByPattern            stream.collect(Collectors.groupingBy(A::getX))
-     *   - ExplicitMapPutPattern        map.put(a.getX(), b.getY())
-     *   - GetterAssignmentProvenancePattern  String x = obj.getField()
-     *
-     * Phase 2 patterns (bridge / equality detectors):
-     *   - ForEachGetBridgePattern      map1.forEach((k,v) -> map2.get(k))
-     *   - DirectGetBridgePattern       map.get(obj.getField()) | map.get(var)
-     *   - StreamFilterBridgePattern    filter(x -> x.getF().equals(y))
-     *
-     * To add a new pattern: implement KeyUsagePattern and add an instance here.
-     */
-    private final List<KeyUsagePattern> patterns = List.of(
-            // Phase 1 — MapFact / provenance collectors
+    private final GlobalMapRegistry globalRegistry;
+
+    /** Phase 1 — MapFact / provenance collectors, in execution order. */
+    private final List<MapFactCollector> collectors = List.of(
             new CollectorsToMapPattern(),
             new GroupingByPattern(),
             new ExplicitMapPutPattern(),
-            new GetterAssignmentProvenancePattern(),
-            // Phase 2 — bridge / equality detectors
+            new GetterAssignmentProvenancePattern()
+    );
+
+    /** Phase 2 — bridge / equality detectors, in execution order. */
+    private final List<BridgeDetector> detectors = List.of(
             new ForEachGetBridgePattern(),
             new DirectGetBridgePattern(),
             new StreamFilterBridgePattern()
     );
 
+    public ImplicitEqualityExtractor(GlobalMapRegistry globalRegistry) {
+        this.globalRegistry = globalRegistry;
+    }
+
     @Override
     public List<FieldMapping> extract(CtExecutable<?> method,
                                       ExecutionContext ctx,
                                       SpoonResolutionHelper helper) {
-        ProvenanceContext provCtx = ProvenanceContext.forMethod(ctx);
+        // Single traversal: collect all AST nodes used by any pattern
+        MethodScanResult scan = MethodScanResult.of(method);
 
-        // Phase 1: all patterns collect Map facts first
-        for (KeyUsagePattern pattern : patterns) {
-            pattern.collectMapFacts(method, provCtx);
+        ProvenanceContext provCtx = ProvenanceContext.forMethod(ctx);
+        CrossFileMapResolver resolver = new CrossFileMapResolver(globalRegistry);
+
+        // Phase 1: all collectors populate provCtx before any bridge detection
+        for (MapFactCollector collector : collectors) {
+            collector.collectMapFacts(scan, provCtx);
         }
 
-        // Phase 2: all patterns detect bridges against the fully-populated context
+        // Phase 2: all detectors inspect the fully-populated provCtx
         List<FieldMapping> results = new ArrayList<>();
-        for (KeyUsagePattern pattern : patterns) {
-            results.addAll(pattern.detectBridges(method, provCtx));
+        for (BridgeDetector detector : detectors) {
+            results.addAll(detector.detectBridges(scan, provCtx, resolver));
         }
 
         return results;

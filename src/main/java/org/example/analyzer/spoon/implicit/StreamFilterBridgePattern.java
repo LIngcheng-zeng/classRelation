@@ -10,46 +10,43 @@ import spoon.reflect.code.CtExpression;
 import spoon.reflect.code.CtInvocation;
 import spoon.reflect.code.CtLambda;
 import spoon.reflect.declaration.CtExecutable;
-import spoon.reflect.visitor.filter.TypeFilter;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 /**
- * Phase 2 pattern: detects implicit field equality from stream filter predicates.
+ * Phase 2 detector: detects implicit field equality from stream filter predicates.
  *
- * Recognized forms (both orderings of equals):
+ * Recognized forms (both orderings):
  *   stream.filter(x -> x.getF().equals(outerVar))
  *   stream.filter(x -> outerVar.equals(x.getF()))
  *   stream.filter(x -> x.getF().equals(other.getG()))
  *
- * In all cases, the two sides of the equals() call represent the same value domain,
- * so the fields involved are implicitly equal (MAP_JOIN · READ_PREDICATE).
+ * In all cases the two sides of equals() belong to the same value domain,
+ * so the fields are implicitly equal (MAP_JOIN · READ_PREDICATE).
  *
- * Example:
- *   users.stream()
- *       .filter(u -> u.getDeptCode().equals(employee.getDepartment()))
- *       .collect(toList());
- *   → User.deptCode ≡ Employee.department
+ * Note: this detector does not use Maps at all — it detects equality from
+ * filter predicates. The {@link CrossFileMapResolver} parameter is accepted
+ * for interface consistency but is not used.
  */
-public class StreamFilterBridgePattern implements KeyUsagePattern {
+public class StreamFilterBridgePattern implements BridgeDetector {
 
     @Override
-    public void collectMapFacts(CtExecutable<?> method, ProvenanceContext ctx) {}
-
-    @Override
-    public List<FieldMapping> detectBridges(CtExecutable<?> method, ProvenanceContext ctx) {
+    public List<FieldMapping> detectBridges(MethodScanResult scan,
+                                             ProvenanceContext ctx,
+                                             CrossFileMapResolver resolver) {
         List<FieldMapping> results = new ArrayList<>();
-        String location = method.getSimpleName() + "(stream-filter-equals)";
 
-        for (CtInvocation<?> filterInv : method.getElements(new TypeFilter<>(CtInvocation.class))) {
+        for (CtInvocation<?> filterInv : scan.invocations) {
             if (!"filter".equals(filterInv.getExecutable().getSimpleName())) continue;
             if (filterInv.getArguments().isEmpty()) continue;
             if (!(filterInv.getArguments().get(0) instanceof CtLambda<?> lambda)) continue;
 
-            // Scan the lambda body for .equals() calls
-            for (CtInvocation<?> equalsInv : lambda.getElements(new TypeFilter<>(CtInvocation.class))) {
+            String location = resolveLocation(filterInv);
+
+            for (CtInvocation<?> equalsInv : lambda.getElements(
+                    new spoon.reflect.visitor.filter.TypeFilter<>(CtInvocation.class))) {
                 if (!"equals".equals(equalsInv.getExecutable().getSimpleName())) continue;
                 if (equalsInv.getArguments().isEmpty()) continue;
 
@@ -77,7 +74,19 @@ public class StreamFilterBridgePattern implements KeyUsagePattern {
         return results;
     }
 
+    // ── helpers ───────────────────────────────────────────────────────────────
+
+    private String resolveLocation(CtInvocation<?> inv) {
+        try {
+            CtExecutable<?> method = inv.getParent(CtExecutable.class);
+            return (method != null ? method.getSimpleName() : "unknown") + "(stream-filter-equals)";
+        } catch (Exception e) {
+            return "unknown(stream-filter-equals)";
+        }
+    }
+
     private ExpressionSide toSide(FieldProvenance prov) {
-        return new ExpressionSide(List.of(new FieldRef(prov.originClass(), prov.originField())), "direct");
+        return new ExpressionSide(
+                List.of(new FieldRef(prov.originClass(), prov.originField())), "direct");
     }
 }

@@ -1,5 +1,7 @@
 package org.example.analyzer.spoon;
 
+import org.example.analyzer.spoon.implicit.GlobalMapRegistry;
+import org.example.analyzer.spoon.implicit.GlobalMapRegistryBuilder;
 import org.example.analyzer.spoon.implicit.ImplicitEqualityExtractor;
 import org.example.analyzer.spoon.inter.InterProceduralExtractor;
 import org.example.analyzer.spoon.intra.BuilderChainExtractor;
@@ -16,17 +18,17 @@ import java.util.List;
 /**
  * Orchestrates all Spoon-based field-mapping patterns for a single method execution.
  *
- * Delegates each pattern to a focused {@link SpoonPatternExtractor} implementation:
- *   structural — {@link CompositionExtractor}     (class-level aggregation relationships)
- *   intra      — {@link ConstructorCallExtractor} (constructor argument → parameter mappings)
- *   intra      — {@link BuilderChainExtractor}    (builder().field(x).build() chains)
- *   intra      — {@link DirectSetterExtractor}    (intra-procedural obj.setXxx(expr) calls)
- *   inter      — {@link InterProceduralExtractor} (cross-method projection, depth-limited)
+ * The {@link GlobalMapRegistry} is built lazily on the first {@code extract()} call
+ * and cached for the lifetime of this instance — it is shared across all subsequent
+ * per-method invocations within the same analysis batch.
  *
- * All pattern extractors share a single {@link SpoonResolutionHelper} instance.
+ * All pattern extractors share a single {@link SpoonResolutionHelper} instance per call.
  * The {@link ExecutionContext} replaces the flat aliasMap for scope-aware resolution.
  */
 class CallProjectionExtractor {
+
+    /** Built once per batch on first use; guarded by volatile for safe lazy init. */
+    private volatile GlobalMapRegistry globalMapRegistry;
 
     void extract(CtExecutable<?> method, ExecutionContext ctx, CtModel model) {
         SpoonResolutionHelper helper = new SpoonResolutionHelper(model);
@@ -36,7 +38,7 @@ class CallProjectionExtractor {
                 new ConstructorCallExtractor(),
                 new BuilderChainExtractor(),
                 new DirectSetterExtractor(),
-                new ImplicitEqualityExtractor()
+                new ImplicitEqualityExtractor(registry(model))
         );
 
         List<FieldMapping> results = new ArrayList<>();
@@ -53,5 +55,22 @@ class CallProjectionExtractor {
 
     List<FieldMapping> results() {
         return results;
+    }
+
+    // ── lazy registry init ────────────────────────────────────────────────────
+
+    /**
+     * Double-checked lazy initialisation. Building the registry is idempotent,
+     * so a race on first call produces the same result either way.
+     */
+    private GlobalMapRegistry registry(CtModel model) {
+        if (globalMapRegistry == null) {
+            synchronized (this) {
+                if (globalMapRegistry == null) {
+                    globalMapRegistry = new GlobalMapRegistryBuilder().build(model);
+                }
+            }
+        }
+        return globalMapRegistry;
     }
 }

@@ -10,50 +10,43 @@ import org.example.model.MappingType;
 import spoon.reflect.code.CtExpression;
 import spoon.reflect.code.CtInvocation;
 import spoon.reflect.code.CtLambda;
-import spoon.reflect.code.CtVariableRead;
 import spoon.reflect.declaration.CtExecutable;
-import spoon.reflect.visitor.filter.TypeFilter;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 /**
- * Phase 2 pattern: general bridge detector for any {@code map.get(expr)} call
+ * Phase 2 detector: general bridge detector for any {@code map.get(expr)} call
  * where the argument has resolvable field provenance.
  *
  * Handles two argument forms:
  *   map.get(obj.getField())   — getter expression directly as argument
- *   map.get(localVar)         — variable whose provenance was registered by a Phase 1 pattern
+ *   map.get(localVar)         — variable whose provenance was registered by a Phase 1 collector
  *
- * Intentionally excludes forEach-lambda parameters (those are handled by
- * {@link ForEachGetBridgePattern}, which creates the necessary lambda-scoped provenance).
+ * Intentionally excludes forEach-lambda parameters (handled by {@link ForEachGetBridgePattern}).
  *
- * For each call where:
- *   - the target map has a MapFact in the ProvenanceContext
- *   - the argument has resolvable provenance
- *   - the argument's origin differs from the map's key origin
+ * Cross-file Maps are resolved via {@link CrossFileMapResolver}:
+ *   - the target map may be a field, parameter, getter call, or static of another class.
  *
- * Emits two FieldMappings:
+ * Emits two FieldMappings per bridge:
  *   1. Key equality:   argField ≡ mapKeyField       [MAP_JOIN · READ_PREDICATE]
  *   2. Value mapping:  argField source → mapValueField  [MAP_JOIN · WRITE_ASSIGNMENT]
- *      (only when the value has a concrete field, not a "#self" sentinel)
+ *      (only when the value has a concrete field, not a "#self" or "#inferred" sentinel)
  */
-public class DirectGetBridgePattern implements KeyUsagePattern {
+public class DirectGetBridgePattern implements BridgeDetector {
 
     @Override
-    public void collectMapFacts(CtExecutable<?> method, ProvenanceContext ctx) {}
-
-    @Override
-    public List<FieldMapping> detectBridges(CtExecutable<?> method, ProvenanceContext ctx) {
+    public List<FieldMapping> detectBridges(MethodScanResult scan,
+                                             ProvenanceContext ctx,
+                                             CrossFileMapResolver resolver) {
         List<FieldMapping> results = new ArrayList<>();
-        String location = method.getSimpleName() + "(implicit-map-join)";
 
-        for (CtInvocation<?> inv : method.getElements(new TypeFilter<>(CtInvocation.class))) {
+        for (CtInvocation<?> inv : scan.invocations) {
             if (!isMapGet(inv)) continue;
-            if (isInsideForEachLambda(inv)) continue;   // handled by ForEachGetBridgePattern
+            if (isInsideForEachLambda(inv)) continue;
 
-            Optional<MapFact> mapFact = resolveMapFact(inv.getTarget(), ctx);
+            Optional<MapFact> mapFact = resolver.resolve(inv.getTarget(), ctx);
             if (mapFact.isEmpty()) continue;
 
             CtExpression<?> arg = inv.getArguments().get(0);
@@ -61,9 +54,10 @@ public class DirectGetBridgePattern implements KeyUsagePattern {
             if (argProv.isEmpty()) continue;
 
             FieldProvenance mapKey = mapFact.get().keyProvenance();
-            if (argProv.get().isSameOrigin(mapKey)) continue;   // same origin — no new info
+            if (argProv.get().isSameOrigin(mapKey)) continue;
 
-            // Key equality
+            String location = resolveLocation(inv);
+
             results.add(new FieldMapping(
                     toSide(argProv.get()),
                     toSide(mapKey),
@@ -73,9 +67,10 @@ public class DirectGetBridgePattern implements KeyUsagePattern {
                     location
             ));
 
-            // Value derivation (skip "#self" sentinel used by groupingBy)
+            // Value derivation — skip sentinels used by groupingBy and type-inference fallback
             FieldProvenance mapValue = mapFact.get().valueProvenance();
-            if (!mapValue.originField().equals("#self")) {
+            String valueField = mapValue.originField();
+            if (!valueField.equals("#self") && !valueField.equals("#inferred")) {
                 results.add(new FieldMapping(
                         toSide(argProv.get()),
                         toSide(mapValue),
@@ -94,16 +89,11 @@ public class DirectGetBridgePattern implements KeyUsagePattern {
 
     private boolean isMapGet(CtInvocation<?> inv) {
         String name = inv.getExecutable().getSimpleName();
-        // get, getOrDefault, computeIfAbsent all use the key as first arg
         return (name.equals("get") || name.equals("getOrDefault") || name.equals("computeIfAbsent"))
                 && !inv.getArguments().isEmpty()
                 && inv.getTarget() != null;
     }
 
-    /**
-     * Returns true if this invocation is directly inside a Map.forEach lambda.
-     * Such sites are already processed by {@link ForEachGetBridgePattern}.
-     */
     private boolean isInsideForEachLambda(CtInvocation<?> inv) {
         try {
             var parent = inv.getParent();
@@ -115,7 +105,6 @@ public class DirectGetBridgePattern implements KeyUsagePattern {
                         return true;
                     }
                 }
-                // Stop at method boundary
                 if (parent instanceof CtExecutable<?> && !(parent instanceof CtLambda<?>)) break;
                 parent = parent.getParent();
             }
@@ -123,14 +112,17 @@ public class DirectGetBridgePattern implements KeyUsagePattern {
         return false;
     }
 
-    private Optional<MapFact> resolveMapFact(CtExpression<?> target, ProvenanceContext ctx) {
-        if (target instanceof CtVariableRead<?> vr) {
-            return ctx.mapFact(vr.getVariable().getSimpleName());
+    private String resolveLocation(CtInvocation<?> inv) {
+        try {
+            CtExecutable<?> method = inv.getParent(CtExecutable.class);
+            return (method != null ? method.getSimpleName() : "unknown") + "(implicit-map-join)";
+        } catch (Exception e) {
+            return "unknown(implicit-map-join)";
         }
-        return Optional.empty();
     }
 
     private ExpressionSide toSide(FieldProvenance prov) {
-        return new ExpressionSide(List.of(new FieldRef(prov.originClass(), prov.originField())), "direct");
+        return new ExpressionSide(
+                List.of(new FieldRef(prov.originClass(), prov.originField())), "direct");
     }
 }
