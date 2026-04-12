@@ -22,7 +22,7 @@ import java.util.Optional;
 public class GetterAssignmentProvenancePattern implements MapFactCollector {
 
     @Override
-    public void collectMapFacts(MethodScanResult scan, ProvenanceContext ctx) {
+    public void collectMapFacts(MethodScanResult scan, ProvenanceContext ctx, GlobalMapRegistry globalRegistry) {
         // Local variable declarations: Type x = obj.getField();
         for (CtLocalVariable<?> lv : scan.localVars) {
             if (!(lv.getDefaultExpression() instanceof CtInvocation<?> inv)) continue;

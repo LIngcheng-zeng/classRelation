@@ -23,7 +23,7 @@ import java.util.Optional;
 public class CollectorsToMapPattern implements MapFactCollector {
 
     @Override
-    public void collectMapFacts(MethodScanResult scan, ProvenanceContext ctx) {
+    public void collectMapFacts(MethodScanResult scan, ProvenanceContext ctx, GlobalMapRegistry globalRegistry) {
         for (CtLocalVariable<?> lv : scan.localVars) {
             if (lv.getDefaultExpression() == null) continue;
             tryExtract(lv.getSimpleName(), lv.getDefaultExpression(), ctx);

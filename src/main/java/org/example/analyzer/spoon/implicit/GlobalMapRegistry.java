@@ -1,6 +1,9 @@
 package org.example.analyzer.spoon.implicit;
 
+import org.example.analyzer.javaparser.JavaParserAnalyzer;
 import org.example.model.MapFact;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -28,7 +31,7 @@ import java.util.Optional;
  * noClasspath mode where FQNs are sometimes unavailable.
  */
 public final class GlobalMapRegistry {
-
+    private static final Logger log = LoggerFactory.getLogger(GlobalMapRegistry.class);
     private final Map<String, MapFact> fieldFacts        = new LinkedHashMap<>();
     private final Map<String, MapFact> methodReturnFacts = new LinkedHashMap<>();
     private final Map<String, MapFact> staticFacts       = new LinkedHashMap<>();
@@ -36,6 +39,7 @@ public final class GlobalMapRegistry {
     // ── registration ─────────────────────────────────────────────────────────
 
     public void registerFieldFact(String className, String fieldName, MapFact fact) {
+        log.info("Registering field fact: " + className + " , " + fieldName);
         fieldFacts.put(key(className, fieldName), fact);
     }
 

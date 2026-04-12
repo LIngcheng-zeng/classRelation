@@ -4,9 +4,9 @@
 
 | 项目 | 数值 |
 |---|---|
-| 涉及类关系对（直接） | 20 |
-| 探测型关联（READ） | 10 |
-| 动作型关联（WRITE） | 35 |
+| 涉及类关系对（直接） | 21 |
+| 探测型关联（READ） | 11 |
+| 动作型关联（WRITE） | 36 |
 | 推导关联（传递闭包） | 1 |
 
 ## 关联图谱
@@ -33,6 +33,16 @@ flowchart LR
     Order -.->|"PD: Order.userId ≡ VipUser.id"| VipUser:::writeRel
     User -.->|"PD: User.id ≡ Invoice.buyerId"| Invoice:::writeRel
     VipUser -.->|"extends"| User:::inheritRel
+    classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
+    classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
+    classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
+```
+
+```mermaid
+flowchart LR
+    linkStyle default stroke:#999,stroke-width:1px
+    CrossFileModel2 -->|"MJ: CrossFileModel2.key ≡ CrossFileModel.key"| CrossFileModel:::readRel
+    CrossFileModel2 -.->|"MJ: CrossFileModel2.key ≡ CrossFileModel.name"| CrossFileModel:::writeRel
     classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
     classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
     classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
@@ -184,6 +194,15 @@ flowchart LR
 | | *new Account(userOrderDTO.getUser().getPhone(), userOrderDTO.getUser().getId())* | | | |
 | `userId` | `User.id` | PARAMETERIZED | WRITE | `createAccountFromUser(constructor-call)` |
 | | *new Account(userOrderDTO.getUser().getPhone(), userOrderDTO.getUser().getId())* | | | |
+
+### CrossFileModel
+
+| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+|---|---|---|---|---|---|
+| `key` | `CrossFileModel2.key` | MAP_JOIN | READ | `testCrossFile(implicit-map-join)` |
+| | *CrossFileTest.model1Map.get(crossFileModel2.getKey())* | | | |
+| `name` | `CrossFileModel2.key` | MAP_JOIN | WRITE | `testCrossFile(implicit-map-join)` |
+| | *CrossFileTest.model1Map.get(crossFileModel2.getKey())* | | | |
 
 ### ItemDetail
 

@@ -67,7 +67,7 @@ public class ImplicitEqualityExtractor implements SpoonPatternExtractor {
 
         // Phase 1: all collectors populate provCtx before any bridge detection
         for (MapFactCollector collector : collectors) {
-            collector.collectMapFacts(scan, provCtx);
+            collector.collectMapFacts(scan, provCtx, globalRegistry);
         }
 
         // Phase 2: all detectors inspect the fully-populated provCtx

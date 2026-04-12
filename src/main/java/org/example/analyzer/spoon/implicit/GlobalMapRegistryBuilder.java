@@ -94,7 +94,7 @@ public final class GlobalMapRegistryBuilder {
                 ExecutionContext  execCtx = ExecutionContext.forMethod(method);
                 ProvenanceContext provCtx = ProvenanceContext.forMethod(execCtx);
 
-                collectors.forEach(c -> c.collectMapFacts(scan, provCtx));
+                collectors.forEach(c -> c.collectMapFacts(scan, provCtx,registry));
                 detectFieldAssignments(scan, provCtx, type, className, registry);
             } catch (Exception ignored) {}
         }
@@ -111,7 +111,7 @@ public final class GlobalMapRegistryBuilder {
                 ExecutionContext  execCtx = ExecutionContext.forMethod(method);
                 ProvenanceContext provCtx = ProvenanceContext.forMethod(execCtx);
 
-                collectors.forEach(c -> c.collectMapFacts(scan, provCtx));
+                collectors.forEach(c -> c.collectMapFacts(scan, provCtx,registry));
                 detectReturnFact(scan, provCtx, method, className, type, registry);
             } catch (Exception ignored) {}
         }

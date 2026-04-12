@@ -102,7 +102,7 @@ public final class CrossFileMapResolver {
             CtTypeReference<?> declaringType = fr.getVariable().getDeclaringType();
             if (declaringType == null) return Optional.empty();
             String className = declaringType.getSimpleName();
-            String fieldName = fr.getVariable().getSimpleName();
+            String fieldName = fr.getVariable().getQualifiedName();
             return registry.lookupField(className, fieldName);
         } catch (Exception e) {
             return Optional.empty();

@@ -354,6 +354,23 @@ class LineageAnalyzerIntegrationTest {
         assertTrue(found, "应该检测到 Employee.departmentCode ≡ Bottom.name（跨文件静态字段 Map 桥接）");
     }
 
+    @Test
+    void shouldDetectCrossFileLambdaPutGetBridge() {
+        List<ClassRelation> relations = analyzer.analyze(testProjectRoot);
+
+        // CrossFileTest: forEach(item -> model1Map.put(item.getKey(), item.getName()))
+        // CrossFileTest2: CrossFileTest.model1Map.get(crossFileModel2.getKey())
+        // → CrossFileModel2.key ≡ CrossFileModel.key
+        boolean found = relations.stream()
+                .flatMap(r -> r.mappings().stream())
+                .anyMatch(m -> "MAP_JOIN".equals(m.type().name())
+                        && m.leftSide().fields().stream().anyMatch(f -> "key".equals(f.fieldName()) 
+                            && ("CrossFileModel2".equals(f.className()) || "CrossFileModel".equals(f.className())))
+                        && m.rightSide().fields().stream().anyMatch(f -> "key".equals(f.fieldName())
+                            && ("CrossFileModel2".equals(f.className()) || "CrossFileModel".equals(f.className()))));
+        assertTrue(found, "应该检测到 CrossFileModel2.key ≡ CrossFileModel.key（lambda 内 put + 跨文件静态字段 get 桥接）");
+    }
+
     // ── 原有测试 ─────────────────────────────────────────────────────────────
 
     @Test
