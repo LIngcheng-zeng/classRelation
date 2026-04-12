@@ -2,14 +2,38 @@
 
 > 📘 **相关文档**：[技术实现 (PROJECT_DOC.md)](PROJECT_DOC.md) | [使用指南 (USAGE.md)](USAGE.md)
 
+## 0. 项目概述
+
+**classRelation** 是一个 Java 源码静态分析工具，基于 **元属性逻辑关联协议（MALM）**，自动探测类与类之间基于字段等值判定、状态同步以及对象持有关系所隐含的字段血缘关系。
+
+**核心特性**：
+- ✅ 双引擎解析：JavaParser（单方法内分析）+ Spoon（跨过程分析）
+- ✅ 三种关联模式：探测型（READ）、动作型（WRITE）、推导型（TRANSITIVE）
+- ✅ 传递性闭包推导：自动发现间接数据流
+- ✅ Lombok 支持：通过 Spoon CtModel 解析 @Data/@Builder 生成的代码
+- ✅ 归一化操作采集：识别 `.toLowerCase()`, `.trim()` 等转换操作
+- ✅ 包过滤功能：聚焦特定模块的关系分析
+- ✅ 可视化报告：Mermaid 图谱 + 详细表格
+
+**适用场景**：
+- DTO ↔ Entity 映射关系梳理
+- 微服务间数据结构兼容性分析
+- 遗留系统重构前的依赖关系评估
+- API 接口参数传递链路追踪
+
 ## 1. 核心定义 (Definition)
 
 **元属性逻辑关联**是指类与类之间，基于属性值的**等值判定（Predicate）**或**状态同步（Assignment）**而建立的逻辑纽带。其本质是描述数据在不同对象维度下如何达成"语义对等"的规则集合。
 
-**实现基础**：静态 AST 分析（JavaParser），感知范围限于源码中可静态解析的字段引用，不覆盖运行时动态绑定。
+**实现基础**：静态 AST 分析（JavaParser 3.26.4 + Spoon 10.4.2），感知范围限于源码中可静态解析的字段引用，不覆盖运行时动态绑定。
 
-**分析流水线**：
+**分析流水线**（五阶段架构）：
 ```
+Phase 0: Symbol Resolution  → 构建类型索引、继承关系、类包映射
+Phase 1: Extraction         → 双引擎并行提取（JavaParser + Spoon）
+Phase 2: Qualification      → 统一规范化为完全限定名（FQN）
+Phase 3: Aggregation        → 按类对分组聚合
+Phase 4: Enrichment         → 传递性闭包推导
 scan → parse → visit → extract → classify → aggregate → expand → render
 ```
 
@@ -406,9 +430,37 @@ java -jar target/classRelation.jar /path/to/project --package org.example.model
 
 更多用法详见 [USAGE.md](USAGE.md)，包括：
 - 完整的命令行参数说明
-- 包过滤功能详解
+- 包过滤功能详解（精确匹配、通配符 `*`、递归 `**`）
 - 输出文件说明
-- 常见场景示例
+- 常见场景示例（DTO↔Entity、多模块分析）
 - 常见问题解答（FAQ）
+
+---
+
+## 12. 版本历史
+
+### v1.0-SNAPSHOT（当前版本）
+
+**核心能力**：
+- ✅ 双引擎架构：JavaParser（单方法内）+ Spoon（跨过程）
+- ✅ SPI 扩展机制：支持自定义 SourceAnalyzer
+- ✅ 五阶段流水线：解耦符号解析、提取、规范化、聚合、推导
+- ✅ 完整 GAP 修复：GAP-01（变量分类）、GAP-02（算子检测）、GAP-03（归一化采集）
+
+**新增功能**：
+- 🆕 Spoon 跨过程分析：方法间参数字段映射
+- 🆕 对象持有关系识别：Composition/Aggregation 检测
+- 🆕 构造函数参数映射：`new Account(user.getPhone())` → 字段级血缘
+- 🆕 Builder 模式支持：`Invoice.builder().build()` 类型推断
+- 🆕 Optional/Monadic 支持：`optional.map(User::getId)` 泛型提取
+- 🆕 任意深度链式调用：`a.getB().getC().getD()` 递归解析
+- 🆕 Lombok @Data 支持：通过 CtModel 解析生成的 getter/setter
+- 🆕 包过滤功能：`--package` 参数支持通配符匹配
+
+**已知限制**：
+- ❌ null 安全性建模（待实现）
+- ❌ 类型兼容性自动识别（Integer ↔ Long 等）
+- ❌ 反射调用分析（超出静态分析边界）
+- ⚠️ 复杂泛型嵌套可能失效
 
 ---

@@ -1,6 +1,6 @@
 # classRelation — 项目技术文档
 
-> 版本：1.0-SNAPSHOT | 语言：Java 21 | 核心依赖：JavaParser 3.26.4 + Spoon 10.4.0
+> 版本：1.0-SNAPSHOT | 语言：Java 21 | 核心依赖：JavaParser 3.26.4 + Spoon 10.4.2
 
 > 📘 **相关文档**：[协议规范 (readeMe.md)](readeMe.md) | [使用指南 (USAGE.md)](USAGE.md)
 
@@ -11,6 +11,12 @@
 `classRelation` 是一个 **Java 源码静态分析工具**，目标是自动探测项目中类与类之间基于字段等值判定（`equals()`）、状态同步（赋值）以及对象持有关系所隐含的字段血缘关系（Field Lineage），并支持传递性闭包推导。
 
 其理论基础对应 `readeMe.md` 中定义的 **元属性逻辑关联协议（MALM）**，覆盖探测型、动作型、推导型三类关联模式，并扩展了跨过程分析和组合关系识别能力。
+
+**核心价值**：
+- 🔍 **数据流可视化**：将隐式的字段映射关系显式化，生成可读的血缘报告
+- 🛠️ **重构辅助**：在系统重构前梳理类之间的依赖关系，评估影响范围
+- 📊 **架构治理**：识别模块间的耦合度，发现不合理的数据传递链路
+- ✅ **兼容性检查**：对比不同版本的 DTO/Entity 结构变化，评估 API 兼容性
 
 **核心能力**：
 - ✅ 字段等值映射（READ_PREDICATE）
@@ -23,61 +29,86 @@
 - ✅ 归一化操作采集（GAP-03 已修复）
 - ✅ 别名展开后算子检测（GAP-02 已修复）
 - ✅ 变量上下文正确分类（GAP-01 已修复）
+- ✅ Lombok @Data/@Builder 支持
 
 ---
 
 ## 2. 分析流水线
 
+### 2.1 五阶段架构
+
 ```
-projectRoot (目录)
+Phase 0: Symbol Resolution  → 构建类型索引、继承关系、类包映射
     │
     ▼
-[JavaFileScanner]             递归扫描所有 .java 文件
+Phase 1: Extraction         → 双引擎并行提取（JavaParser + Spoon）
+    │                           · JavaParserAnalyzer: 单方法内分析
+    │                             - EqualsCallVisitor: caller.equals(arg)
+    │                             - AssignmentVisitor: obj.field = expr
+    │                             - SetterCallVisitor: obj.setXxx(value)
+    │                           · SpoonAnalyzer: 跨过程分析
+    │                             - CallProjectionExtractor: 方法间参数映射
+    │                             - extractCompositionRelationships: 对象持有
+    │                             - extractConstructorCalls: 构造函数映射
     │
     ▼
-[StaticJavaParser + Spoon]    双引擎解析：
-    │                           · JavaParser: AST + SymbolSolver 类型推导
-    │                           · Spoon: CtModel（支持 Lombok 生成的 getter）
-    │
-    ├──▶ [EqualsCallVisitor]  采集 caller.equals(arg) / Objects.equals(a,b)
-    │         + LocalAliasResolver（方法体别名表）
-    │         + LambdaExpr 作用域隔离
-    │
-    ├──▶ [AssignmentVisitor]  采集 obj.field = expr
-    │         + LocalAliasResolver + LambdaExpr 隔离
-    │
-    ├──▶ [SetterCallVisitor]  采集 obj.setXxx(value) → 等价 WRITE_ASSIGNMENT
-    │         + LocalAliasResolver + LambdaExpr 隔离
-    │
-    └──▶ [SpoonAnalyzer]      跨过程分析（新增）
-              · CallProjectionExtractor: 方法间参数字段映射
-              · extractCompositionRelationships: 对象持有关系
-              · extractConstructorCalls: 构造函数参数映射
+Phase 2: Qualification      → 统一规范化为完全限定名（FQN）
+    │                           · FieldRefQualifier: 应用符号解析结果
+    │                           · User-class Filter: 过滤非用户类
     │
     ▼
-[FieldRefExtractor]           提取字段引用，支持：
-    │  · 直接字段访问 obj.field
-    │  · Getter 剥离 obj.getXxx() → field "xxx"
-    │  · 拼接/格式化/变换链
-    │  · 局部别名展开（aliasMap）
-    │  · GAP-02: 别名展开后算子检测
-    │  · GAP-03: 归一化操作采集
+Phase 3: Aggregation        → 按类对分组聚合
+    │                           · LineageGraph: Map<Src→Tgt, List<FieldMapping>>
+    │                           · Inheritance Metadata: 附加继承信息
     │
     ▼
-[RelationshipClassifier]      分类 ATOMIC / COMPOSITE / PARAMETERIZED
-    │                           · GAP-01: 变量上下文正确分类
-    ▼
-[LineageGraph]                聚合为 ClassRelation（按 SrcClass→TgtClass 分组）
-    │
-    ▼
-[TransitiveClosureExpander]   固定点迭代推导传递关联 A≡B + B≡C → A≡C
-    │                         PairKey 防环防重，完整闭包无跳数限制
-    ▼
-[MarkdownDocumentRenderer]    生成 <projectName>.md 报告
-    · 摘要统计
-    · Mermaid 关联图谱（三种箭头）
-    · 字段血缘明细（按目标类分节，含归一化操作列）
-    · 推导关联（独立节）
+Phase 4: Enrichment         → 传递性闭包推导
+                                · TransitiveClosureExpander: 固定点迭代
+                                · PairKey 防环防重机制
+```
+
+### 2.2 执行流程示例
+
+```java
+// Main.java 入口
+LineageAnalyzer analyzer = new LineageAnalyzer();  // 默认加载 JavaParser + Spoon
+List<ClassRelation> relations = analyzer.analyze(projectRoot);
+
+// 内部流程
+// Phase 0: SymbolResolver.resolve() → SymbolResolutionResult
+//   - fieldTypeMap: className.fieldName → Type
+//   - inheritanceIndex: className → List<parentClassName>
+//   - classPackageIndex: simpleName → FQN
+
+// Phase 1: 双引擎提取
+//   - JavaParserAnalyzer.analyze() → List<FieldMapping>
+//     · 扫描所有 .java 文件
+//     · 三路 Visitor 并行采集（equals / assign / setter）
+//     · LocalAliasResolver 构建方法体别名表
+//     · LambdaExpr 作用域隔离
+//   - SpoonAnalyzer.analyze() → List<FieldMapping>
+//     · 构建 CtModel（支持 Lombok）
+//     · 提取方法间参数投影
+//     · 识别对象持有关系
+//     · 解析构造函数调用
+
+// Phase 2: 规范化
+//   - FieldRefQualifier.qualify() → List<FieldMapping>
+//     · 将所有 FieldRef.className 转换为 FQN
+//     · 应用 SymbolResolutionResult 的类型信息
+
+// Phase 2.5: 用户类过滤
+//   - 过滤掉任一侧不含用户类的映射
+//   - userClassFqns = classPackageIndex.values()
+
+// Phase 3: 聚合
+//   - LineageGraph.addMapping() → Map<String, List<FieldMapping>>
+//   - key = "SourceClass->TargetClass"
+
+// Phase 4: 推导
+//   - TransitiveClosureExpander.expand() → List<ClassRelation>
+//     · 固定点迭代直至无新关联产生
+//     · 生成 TRANSITIVE_CLOSURE 模式的映射
 ```
 
 ---
@@ -86,16 +117,21 @@ projectRoot (目录)
 
 ### 3.1 数据模型层 (`org.example.model`)
 
-| 类型 | 职责 |
-|---|---|
-| `FieldRef` | 单个字段引用：`className + fieldName`，className 可为 null |
-| `ExpressionSide` | equals() 一侧的完整表达式：FieldRef 列表 + 算子（direct/concat/format/transform） |
-| `MappingType` | `ATOMIC` / `COMPOSITE` / `PARAMETERIZED` |
-| `MappingMode` | `READ_PREDICATE` / `WRITE_ASSIGNMENT` / `TRANSITIVE_CLOSURE` |
-| `FieldMapping` | 一次关联的完整记录：leftSide、rightSide、type、**mode**、rawExpression、location |
-| `ClassRelation` | 两个类之间所有 FieldMapping 的聚合：sourceClass → targetClass → mappings |
+| 类型 | 职责 | 关键字段 |
+|------|------|----------|
+| `FieldRef` | 单个字段引用 | `className` (可为 null), `fieldName` |
+| `ExpressionSide` | equals() 一侧的完整表达式 | `fields: List<FieldRef>`, `operatorDesc` |
+| `MappingType` | 映射类型枚举 | `ATOMIC`, `COMPOSITE`, `PARAMETERIZED` |
+| `MappingMode` | 关联模式枚举 | `READ_PREDICATE`, `WRITE_ASSIGNMENT`, `TRANSITIVE_CLOSURE` |
+| `FieldMapping` | 一次关联的完整记录 | `leftSide`, `rightSide`, `type`, `mode`, `rawExpression`, `location`, `normalization` |
+| `ClassRelation` | 两个类之间所有 FieldMapping 的聚合 | `sourceClass`, `targetClass`, `mappings: List<FieldMapping>` |
 
 **数据流向**：`FieldRef` → `ExpressionSide` → `FieldMapping` → `ClassRelation`
+
+**设计原则**：
+- 不可变性：所有 record 均为 immutable
+- 分层抽象：从原子字段引用到类关系的逐层聚合
+- 溯源能力：每个 FieldMapping 保留原始代码表达式和位置信息
 
 ---
 
@@ -323,38 +359,107 @@ java -jar target/classRelation-1.0-SNAPSHOT-jar-with-dependencies.jar <被分析
 
 ```
 org.example
-├── Main.java
+├── Main.java                          程序入口，命令行参数解析
+├── spi/
+│   └── SourceAnalyzer.java            SPI 接口，分析引擎契约
 ├── model/
-│   ├── FieldRef.java
-│   ├── ExpressionSide.java
-│   ├── FieldMapping.java              +normalization 字段 (GAP-03)
-│   ├── ClassRelation.java
+│   ├── FieldRef.java                  字段引用 record
+│   ├── ExpressionSide.java            表达式一侧 record
+│   ├── FieldMapping.java              关联记录 (+normalization 字段, GAP-03)
+│   ├── ClassRelation.java             类关系聚合 record
 │   ├── MappingType.java               ATOMIC / COMPOSITE / PARAMETERIZED
-│   └── MappingMode.java               READ_PREDICATE / WRITE_ASSIGNMENT / TRANSITIVE_CLOSURE
+│   └── MappingMode.java               READ / WRITE / TRANSITIVE
 ├── analyzer/
-│   ├── JavaFileScanner.java
-│   ├── LocalAliasResolver.java        方法体局部变量别名表构建
-│   ├── FieldRefExtractor.java         字段引用提取 + GAP-02/GAP-03 修复
-│   ├── LineageAnalyzer.java           全流水线编排 (JavaParser)
-│   └── spoon/                         ⭐ 新增 Spoon 分析器
-│       ├── SpoonAnalyzer.java         跨过程分析入口
-│       ├── SpoonAliasBuilder.java     Spoon 别名表构建
-│       └── CallProjectionExtractor.java  方法间字段映射 + 持有关系 + 构造函数
-├── visitor/
-│   ├── EqualCallSite.java             +aliasMap 字段
-│   ├── EqualsCallVisitor.java         +Objects.equals + Lambda 隔离
-│   ├── AssignmentSite.java            +aliasMap 字段
-│   ├── AssignmentVisitor.java         +Lambda 隔离
-│   ├── SetterCallSite.java            Setter 调用点 record
-│   └── SetterCallVisitor.java         obj.setXxx(v) 采集
+│   ├── LineageAnalyzer.java           五阶段流水线编排
+│   ├── SymbolResolver.java            Phase 0: 符号解析
+│   ├── FieldRefQualifier.java         Phase 2: FQN 规范化
+│   ├── javaparser/                    JavaParser 引擎
+│   │   ├── JavaParserAnalyzer.java    SourceAnalyzer 实现
+│   │   ├── LocalAliasResolver.java    方法体别名表构建
+│   │   └── FieldRefExtractor.java     字段引用提取 (+GAP-02/GAP-03)
+│   └── spoon/                         Spoon 引擎 ⭐
+│       ├── SpoonAnalyzer.java         SourceAnalyzer 实现
+│       ├── SpoonResolutionHelper.java 类型解析辅助工具
+│       ├── ExecutionContext.java      执行上下文封装
+│       ├── ExpressionResolverChain.java 表达式解析链
+│       └── intra/                     方法内分析
+│           ├── CallProjectionExtractor.java  方法间映射 + 持有关系 + 构造函数
+│           └── ConstructorCallExtractor.java 构造函数调用提取
+├── visitor/                           JavaParser Visitor
+│   ├── EqualsCallVisitor.java         equals() 采集 (+Objects.equals + Lambda 隔离)
+│   ├── AssignmentVisitor.java         赋值采集 (+Lambda 隔离)
+│   └── SetterCallVisitor.java         setter 采集
 ├── classifier/
-│   └── RelationshipClassifier.java    +GAP-01 变量上下文分类修复
+│   └── RelationshipClassifier.java    分类器 (+GAP-01 变量上下文修复)
 ├── graph/
-│   └── LineageGraph.java              移除自关联过滤
+│   └── LineageGraph.java              聚合器 (包含自关联)
 ├── expander/
 │   └── TransitiveClosureExpander.java 传递闭包固定点迭代
-└── renderer/
-    ├── MermaidRenderer.java           三种箭头样式
-    ├── TableRenderer.java             +模式列 + 归一化列
-    └── MarkdownDocumentRenderer.java  +归一化操作列显示
+├── renderer/
+│   ├── MermaidRenderer.java           Mermaid 图谱生成
+│   ├── TableRenderer.java             ASCII 表格 (+模式列 + 归一化列)
+│   └── MarkdownDocumentRenderer.java  Markdown 报告生成 (+归一化操作列)
+└── util/
+    └── PackageFilter.java             包过滤工具 (通配符匹配)
 ```
+
+---
+
+## 7. 架构设计亮点
+
+### 7.1 SPI 扩展机制
+
+通过 `SourceAnalyzer` 接口解耦分析引擎与编排逻辑：
+
+```java
+public interface SourceAnalyzer {
+    List<FieldMapping> analyze(Path projectRoot, SymbolResolutionResult symbols);
+}
+```
+
+**优势**：
+- 第三方可实现自定义分析器（如 ASM 字节码分析、Kotlin 支持）
+- 测试时可注入 Mock Analyzer
+- 符合开闭原则，新增引擎无需修改 LineageAnalyzer
+
+### 7.2 五阶段流水线
+
+将分析流程拆分为五个独立阶段，每阶段职责单一：
+
+| 阶段 | 输入 | 输出 | 可替换性 |
+|------|------|------|----------|
+| Phase 0: Symbol Resolution | Path | SymbolResolutionResult | ❌ 核心基础 |
+| Phase 1: Extraction | Path + Symbols | List<FieldMapping> | ✅ 可插拔 (SPI) |
+| Phase 2: Qualification | List<FieldMapping> | List<FieldMapping> | ⚠️ 可扩展 |
+| Phase 3: Aggregation | List<FieldMapping> | List<ClassRelation> | ⚠️ 可扩展 |
+| Phase 4: Enrichment | List<ClassRelation> | List<ClassRelation> | ✅ 可增强 |
+
+**优势**：
+- 各阶段独立测试
+- Phase 1 可并行执行多个 Analyzer
+- Phase 2 统一应用规范化规则，避免重复逻辑
+
+### 7.3 防环防重机制
+
+`TransitiveClosureExpander` 使用 `PairKey` 防止循环推导：
+
+```java
+// PairKey 以 leftSide + rightSide 的所有字段签名（排序后拼接）为键
+String signature = leftFields.stream().sorted().collect(joining(","))
+    + "->" + rightFields.stream().sorted().collect(joining(","));
+```
+
+**效果**：
+- A→B + B→A 不会无限循环
+- 相同签名的推导结果不重复生成
+- 自然截断循环路径
+
+### 7.4 降级策略
+
+多处采用优雅降级，确保分析不因局部失败而中断：
+
+1. **SymbolSolver 失败** → 降级为 scope 文本启发式
+2. **文件解析失败** → 记录 WARNING，继续处理其他文件
+3. **类型推断失败** → FieldRef.className = null，强制归类为 PARAMETERIZED
+
+---
