@@ -56,8 +56,8 @@ public class JavaParserAnalyzer implements SourceAnalyzer {
         JavaParser parser = buildParser(projectRoot);
         log.info("[PERF] JavaParserAnalyzer.buildParser: {}ms", System.currentTimeMillis() - ts);
 
-        // Create FieldRefExtractor with Spoon model for hybrid type inference
-        FieldRefExtractor extractor = new FieldRefExtractor(symbols.spoonModel());
+        // Create FieldRefExtractor with Spoon model + classPackageIndex for hybrid type inference
+        FieldRefExtractor extractor = new FieldRefExtractor(symbols.spoonModel(), symbols.classPackageIndex());
 
         List<FieldMapping> mappings = new ArrayList<>();
         long t0 = System.currentTimeMillis();

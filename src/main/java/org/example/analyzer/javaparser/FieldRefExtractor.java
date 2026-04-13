@@ -57,11 +57,24 @@ public class FieldRefExtractor {
     }
 
     /**
-     * Constructor with Spoon model for enhanced type inference.
+     * Constructor with Spoon model and classPackageIndex for full hybrid type inference.
+     *
+     * @param spoonModel         Spoon's CtModel for static type analysis
+     * @param classPackageIndex  simpleName → FQN index (from SymbolResolutionResult)
+     */
+    public FieldRefExtractor(spoon.reflect.CtModel spoonModel, java.util.Map<String, String> classPackageIndex) {
+        this.hybridResolver = new HybridTypeResolver(spoonModel, classPackageIndex);
+        this.scopeChain = buildScopeChain();
+    }
+
+    /**
+     * Constructor with Spoon model only (classPackageIndex unavailable).
+     * Prefer the two-argument constructor when classPackageIndex is available.
+     *
      * @param spoonModel Spoon's CtModel for static type analysis
      */
     public FieldRefExtractor(spoon.reflect.CtModel spoonModel) {
-        this.hybridResolver = new HybridTypeResolver(spoonModel);
+        this.hybridResolver = new HybridTypeResolver(spoonModel, java.util.Map.of());
         this.scopeChain = buildScopeChain();
     }
 
