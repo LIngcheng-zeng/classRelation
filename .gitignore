@@ -37,3 +37,12 @@ build/
 
 ### Mac OS ###
 .DS_Store
+/src/test/resources/test-projects/*
+/src/main/java/org/example/graphify-out/**
+/src/graphify-out/**
+/graphify-out/**
+/docs/**
+/.idea/remote-targets.xml
+/.mcp.json
+/.idea/vcs.xml
+/.idea/misc.xml
