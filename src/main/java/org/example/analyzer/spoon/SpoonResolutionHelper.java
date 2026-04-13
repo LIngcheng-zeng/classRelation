@@ -12,6 +12,7 @@ import spoon.reflect.code.CtVariableRead;
 import spoon.reflect.declaration.CtField;
 import spoon.reflect.declaration.CtMethod;
 import spoon.reflect.declaration.CtType;
+import spoon.reflect.reference.CtArrayTypeReference;
 import spoon.reflect.reference.CtTypeReference;
 
 import org.slf4j.Logger;
@@ -466,5 +467,31 @@ public class SpoonResolutionHelper {
                 || className.equals("Set")       || className.equals("ArrayList")
                 || className.equals("HashMap")   || className.equals("HashSet")
                 || className.equals("Optional")  || className.equals("Stream");
+    }
+
+    /**
+     * Returns true if the type reference is, or contains, a user-defined class.
+     * Handles three cases:
+     *   - direct user class:            UserClass
+     *   - array of user class:          UserClass[]
+     *   - generic containing user class: List&lt;UserClass&gt;, Map&lt;K, UserClass&gt;
+     */
+    public boolean containsUserType(CtTypeReference<?> ref) {
+        if (ref == null) return false;
+        try {
+            if (ref instanceof CtArrayTypeReference<?> atr) {
+                CtTypeReference<?> component = atr.getComponentType();
+                return component != null && !isSystemClass(component.getQualifiedName());
+            }
+            String fqn = ref.getQualifiedName();
+            if (!isSystemClass(fqn)) return true;
+            List<CtTypeReference<?>> args = ref.getActualTypeArguments();
+            if (args != null) {
+                for (CtTypeReference<?> arg : args) {
+                    if (containsUserType(arg)) return true;
+                }
+            }
+        } catch (Exception ignored) {}
+        return false;
     }
 }
