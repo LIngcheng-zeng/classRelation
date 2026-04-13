@@ -18,27 +18,29 @@ import java.util.List;
 /**
  * Orchestrates all Spoon-based field-mapping patterns for a single method execution.
  *
- * The {@link GlobalMapRegistry} is built lazily on the first {@code extract()} call
- * and cached for the lifetime of this instance — it is shared across all subsequent
- * per-method invocations within the same analysis batch.
+ * {@link SpoonResolutionHelper} and {@link GlobalMapRegistry} are built once per analysis
+ * batch by {@link SpoonAnalyzer} and injected here — no per-method rebuild.
  *
- * All pattern extractors share a single {@link SpoonResolutionHelper} instance per call.
- * The {@link ExecutionContext} replaces the flat aliasMap for scope-aware resolution.
+ * Thread-safety: one instance is created per method call; the injected helper and registry
+ * are read-only shared objects safe for concurrent access.
  */
 class CallProjectionExtractor {
 
-    /** Built once per batch on first use; guarded by volatile for safe lazy init. */
-    private volatile GlobalMapRegistry globalMapRegistry;
+    private final SpoonResolutionHelper helper;
+    private final GlobalMapRegistry     registry;
 
-    void extract(CtExecutable<?> method, ExecutionContext ctx, CtModel model) {
-        SpoonResolutionHelper helper = new SpoonResolutionHelper(model);
+    CallProjectionExtractor(SpoonResolutionHelper helper, GlobalMapRegistry registry) {
+        this.helper   = helper;
+        this.registry = registry;
+    }
 
+    void extract(CtExecutable<?> method, ExecutionContext ctx) {
         List<SpoonPatternExtractor> patterns = List.of(
                 new CompositionExtractor(),
                 new ConstructorCallExtractor(),
                 new BuilderChainExtractor(),
                 new DirectSetterExtractor(),
-                new ImplicitEqualityExtractor(registry(model))
+                new ImplicitEqualityExtractor(registry)
         );
 
         List<FieldMapping> results = new ArrayList<>();
@@ -55,22 +57,5 @@ class CallProjectionExtractor {
 
     List<FieldMapping> results() {
         return results;
-    }
-
-    // ── lazy registry init ────────────────────────────────────────────────────
-
-    /**
-     * Double-checked lazy initialisation. Building the registry is idempotent,
-     * so a race on first call produces the same result either way.
-     */
-    private GlobalMapRegistry registry(CtModel model) {
-        if (globalMapRegistry == null) {
-            synchronized (this) {
-                if (globalMapRegistry == null) {
-                    globalMapRegistry = new GlobalMapRegistryBuilder().build(model);
-                }
-            }
-        }
-        return globalMapRegistry;
     }
 }

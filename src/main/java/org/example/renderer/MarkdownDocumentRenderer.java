@@ -2,6 +2,7 @@ package org.example.renderer;
 
 import org.example.model.ClassRelation;
 import org.example.model.FieldMapping;
+import org.example.model.FieldRef;
 import org.example.model.MappingMode;
 import org.example.util.ClassNameValidator;
 
@@ -105,20 +106,25 @@ public class MarkdownDocumentRenderer {
     }
 
     private void renderGroupedTable(StringBuilder sb, List<ClassRelation> rels, boolean derived) {
-        // Aggregate by target class
-        Map<String, List<FieldMapping>> byTarget = new LinkedHashMap<>();
+        // Aggregate by target class, preserving source class info for self-relation filtering
+        Map<String, List<ClassRelation>> byTarget = new LinkedHashMap<>();
         for (ClassRelation rel : rels) {
-            byTarget.computeIfAbsent(rel.targetClass(), k -> new ArrayList<>())
-                    .addAll(rel.mappings());
+            byTarget.computeIfAbsent(rel.targetClass(), k -> new ArrayList<>()).add(rel);
         }
 
-        for (Map.Entry<String, List<FieldMapping>> entry : byTarget.entrySet()) {
+        for (Map.Entry<String, List<ClassRelation>> entry : byTarget.entrySet()) {
+            String targetClass = entry.getKey();
+            
+            // Collect all mappings from relations targeting this class, excluding self-relations
             List<FieldMapping> fieldMappings = entry.getValue().stream()
+                    .filter(rel -> !rel.sourceClass().equals(targetClass))  // Filter out self-relations
+                    .flatMap(rel -> rel.mappings().stream())
                     .filter(m -> !isComposition(m))
                     .toList();
-            if (fieldMappings.isEmpty()) continue;   // section has only composition relations
+            
+            if (fieldMappings.isEmpty()) continue;   // section has only composition or self-relations
 
-            String displayName = ClassNameValidator.extractSimpleName(entry.getKey());
+            String displayName = ClassNameValidator.extractSimpleName(targetClass);
             sb.append("### ").append(displayName).append("\n\n");
 
             if (derived) {
@@ -152,13 +158,19 @@ public class MarkdownDocumentRenderer {
 
         for (Map.Entry<String, List<FieldMapping>> sinkEntry : bySink.entrySet()) {
             String sinkDisplay = sinkEntry.getKey();
-            Set<String> seenSources = new LinkedHashSet<>();
-            boolean firstRow = true;
-
+            
+            // Deduplicate by source side (className.fieldName), keeping first occurrence
+            Map<String, FieldMapping> uniqueSources = new LinkedHashMap<>();
             for (FieldMapping m : sinkEntry.getValue()) {
-                String sourceDisplay  = formatSide(m.leftSide());
                 String sourceDedupKey = dedupKey(m.leftSide());
-                if (!seenSources.add(sourceDedupKey)) continue;
+                uniqueSources.putIfAbsent(sourceDedupKey, m);  // Keep first occurrence
+            }
+            
+            if (uniqueSources.isEmpty()) continue;
+            
+            boolean firstRow = true;
+            for (FieldMapping m : uniqueSources.values()) {
+                String sourceDisplay = formatSide(m.leftSide());
 
                 String sinkCell = firstRow ? "`" + sinkDisplay + "`" : "";
                 String type = m.type().name();
@@ -192,7 +204,8 @@ public class MarkdownDocumentRenderer {
     private String formatSinkField(org.example.model.ExpressionSide side) {
         if (side == null || side.isEmpty()) return "<unknown>";
         return String.join(", ", side.fields().stream()
-                .map(f -> f.fieldName())
+                .map(FieldRef::fieldName)
+                .sorted()
                 .toList());
     }
 

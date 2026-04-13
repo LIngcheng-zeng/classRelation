@@ -31,16 +31,25 @@ public class SymbolResolver {
 
     public SymbolResolutionResult resolve(Path projectRoot) {
         // File scan: produces java file list + classPackageIndex
+        long ts0 = System.currentTimeMillis();
         JavaFileScanner.ScanResult scan = scanner.scan(projectRoot);
+        log.info("[PERF] SymbolResolver.scan: {}ms  files={}", System.currentTimeMillis() - ts0, scan.javaFiles().size());
 
         // Spoon model: produces fieldTypeIndex + inheritanceIndex + CtModel
-        CtModel model         = buildSpoonModel(projectRoot);
+        long ts1 = System.currentTimeMillis();
+        CtModel model = buildSpoonModel(projectRoot);
+        log.info("[PERF] SymbolResolver.buildSpoonModel: {}ms", System.currentTimeMillis() - ts1);
+
+        long ts2 = System.currentTimeMillis();
         FieldTypeMap ftIndex  = model != null ? FieldTypeMap.build(model) : null;
+        log.info("[PERF] SymbolResolver.buildFieldTypeMap: {}ms", System.currentTimeMillis() - ts2);
+
+        long ts3 = System.currentTimeMillis();
         Map<String, ClassRelation.InheritanceInfo> inheritanceIndex =
                 model != null ? detectInheritance(model) : Map.of();
+        log.info("[PERF] SymbolResolver.detectInheritance: {}ms  entries={}", System.currentTimeMillis() - ts3, inheritanceIndex.size());
 
         if (ftIndex != null) log.info("SymbolResolver built {}", ftIndex);
-        log.info("SymbolResolver detected {} inheritance relationship(s)", inheritanceIndex.size());
         log.info("SymbolResolver classPackageIndex: {} entries", scan.classPackageIndex().size());
 
         return new SymbolResolutionResult(

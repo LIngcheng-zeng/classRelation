@@ -16,6 +16,9 @@ import spoon.reflect.declaration.CtExecutable;
 import spoon.reflect.declaration.CtTypeMember;
 import spoon.reflect.visitor.filter.TypeFilter;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -38,6 +41,8 @@ import java.util.Set;
  */
 public class InterProceduralExtractor {
 
+    private static final Logger log = LoggerFactory.getLogger(InterProceduralExtractor.class);
+
     private static final int MAX_DEPTH = 3;
 
     private final SpoonResolutionHelper    helper;
@@ -50,6 +55,9 @@ public class InterProceduralExtractor {
     public List<FieldMapping> extract(CtExecutable<?> method, ExecutionContext ctx) {
         List<FieldMapping> results = new ArrayList<>();
         processInvocations(method, ctx, 0, new HashSet<>(), results);
+        if (!results.isEmpty()) {
+            log.debug("[PERF] InterProcedural {}: {} mappings", method.getSimpleName(), results.size());
+        }
         return results;
     }
 
@@ -61,7 +69,13 @@ public class InterProceduralExtractor {
                                      List<FieldMapping> results) {
         if (depth > MAX_DEPTH) return;
 
-        for (CtInvocation<?> inv : method.getElements(new TypeFilter<>(CtInvocation.class))) {
+        List<CtInvocation<?>> invocations = method.getElements(new TypeFilter<>(CtInvocation.class));
+        if (depth == 0 && invocations.size() > 50) {
+            log.debug("[PERF] InterProcedural large method {}: {} invocations at depth=0",
+                    method.getSimpleName(), invocations.size());
+        }
+
+        for (CtInvocation<?> inv : invocations) {
             CtExecutable<?> callee = resolveCallee(inv);
             if (callee == null) continue;
 

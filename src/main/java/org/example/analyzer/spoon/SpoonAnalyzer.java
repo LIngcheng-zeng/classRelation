@@ -1,5 +1,7 @@
 package org.example.analyzer.spoon;
 
+import org.example.analyzer.spoon.implicit.GlobalMapRegistry;
+import org.example.analyzer.spoon.implicit.GlobalMapRegistryBuilder;
 import org.example.model.FieldMapping;
 import org.example.resolution.SymbolResolutionResult;
 import org.example.spi.SourceAnalyzer;
@@ -10,8 +12,8 @@ import spoon.reflect.declaration.CtMethod;
 import spoon.reflect.declaration.CtType;
 
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Spoon-based implementation of {@link SourceAnalyzer}.
@@ -35,26 +37,43 @@ public class SpoonAnalyzer implements SourceAnalyzer {
             return List.of();
         }
 
-        List<FieldMapping> mappings = new ArrayList<>();
+        long t0 = System.currentTimeMillis();
 
-        for (CtType<?> type : model.getAllTypes()) {
-            for (CtMethod<?> method : type.getMethods()) {
-                if (method.getBody() == null) continue;
-                mappings.addAll(analyzeExecutable(method, model));
-            }
-        }
+        // Build once per analysis batch — NOT per method.
+        // SpoonResolutionHelper pre-indexes all types (O(1) FQN lookup).
+        // GlobalMapRegistry scans all types once for MAP_JOIN detection.
+        SpoonResolutionHelper helper   = new SpoonResolutionHelper(model);
+        GlobalMapRegistry     registry = new GlobalMapRegistryBuilder().build(model);
 
-        log.info("SpoonAnalyzer found {} inter-procedural mapping(s)", mappings.size());
+        long buildMs = System.currentTimeMillis() - t0;
+        log.info("[PERF] SpoonAnalyzer batch init (helper+registry): {}ms", buildMs);
+
+        // Parallel stream over all methods.
+        // Thread-safety guaranteed:
+        //   - helper     : read-only after construction (fqnToType is unmodifiable)
+        //   - registry   : immutable after GlobalMapRegistryBuilder.build()
+        //   - per-method : each lambda gets its own CallProjectionExtractor + ExecutionContext
+        //   - CtModel    : Spoon AST is built before analysis and never mutated here
+        long t1 = System.currentTimeMillis();
+        List<FieldMapping> mappings = model.getAllTypes().stream()
+                .flatMap(type -> type.getMethods().stream())
+                .filter(method -> method.getBody() != null)
+                .parallel()
+                .flatMap(method -> analyzeExecutable(method, helper, registry).stream())
+                .collect(Collectors.toList());
+
+        log.info("[PERF] SpoonAnalyzer: {}ms  mappings={}", System.currentTimeMillis() - t1, mappings.size());
         return mappings;
     }
 
     // -------------------------------------------------------------------------
 
-    private List<FieldMapping> analyzeExecutable(CtMethod<?> method, CtModel model) {
+    private List<FieldMapping> analyzeExecutable(CtMethod<?> method,
+                                                  SpoonResolutionHelper helper,
+                                                  GlobalMapRegistry registry) {
         ExecutionContext ctx = ExecutionContext.forMethod(method);
-
-        CallProjectionExtractor extractor = new CallProjectionExtractor();
-        extractor.extract(method, ctx, model);
+        CallProjectionExtractor extractor = new CallProjectionExtractor(helper, registry);
+        extractor.extract(method, ctx);
         return extractor.results();
     }
 }

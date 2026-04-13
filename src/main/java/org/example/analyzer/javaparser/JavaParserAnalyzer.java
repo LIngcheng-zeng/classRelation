@@ -1,7 +1,8 @@
 package org.example.analyzer.javaparser;
 
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ParseResult;
 import com.github.javaparser.ParserConfiguration;
-import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
@@ -49,16 +50,26 @@ public class JavaParserAnalyzer implements SourceAnalyzer {
 
     @Override
     public List<FieldMapping> analyze(Path projectRoot, SymbolResolutionResult symbols) {
-        configureSymbolSolver(projectRoot);
+        long ts = System.currentTimeMillis();
+        // Instance-level JavaParser — eliminates global static state written by
+        // StaticJavaParser.setConfiguration(), enabling safe concurrent use.
+        JavaParser parser = buildParser(projectRoot);
+        log.info("[PERF] JavaParserAnalyzer.buildParser: {}ms", System.currentTimeMillis() - ts);
 
         // Create FieldRefExtractor with Spoon model for hybrid type inference
         FieldRefExtractor extractor = new FieldRefExtractor(symbols.spoonModel());
 
         List<FieldMapping> mappings = new ArrayList<>();
+        long t0 = System.currentTimeMillis();
+        int fileCount = 0;
 
         for (Path file : symbols.javaFiles()) {
+            fileCount++;
+            long fileStart = System.currentTimeMillis();
             try {
-                CompilationUnit cu       = StaticJavaParser.parse(file);
+                ParseResult<CompilationUnit> result = parser.parse(file);
+                if (!result.isSuccessful() || result.getResult().isEmpty()) continue;
+                CompilationUnit cu       = result.getResult().get();
                 String          fileName = file.getFileName().toString();
                 for (MappingExtractor me : extractors) {
                     mappings.addAll(me.extract(cu, fileName, extractor, classifier));
@@ -68,24 +79,30 @@ public class JavaParserAnalyzer implements SourceAnalyzer {
             } catch (Exception e) {
                 log.warn("Unexpected error parsing: {} — {}", file, e.getMessage());
             }
+            long fileElapsed = System.currentTimeMillis() - fileStart;
+            if (fileElapsed > 2000) {
+                log.warn("[PERF] JavaParserAnalyzer slow file: {} — {}ms", file.getFileName(), fileElapsed);
+            }
         }
 
+        log.info("[PERF] JavaParserAnalyzer: {}ms  files={}  mappings={}",
+                System.currentTimeMillis() - t0, fileCount, mappings.size());
         return mappings;
     }
 
     // -------------------------------------------------------------------------
 
-    private void configureSymbolSolver(Path projectRoot) {
+    private JavaParser buildParser(Path projectRoot) {
         try {
             CombinedTypeSolver solver = new CombinedTypeSolver();
             solver.add(new ReflectionTypeSolver());
             solver.add(new JavaParserTypeSolver(projectRoot));
-
-            StaticJavaParser.setConfiguration(
-                    new ParserConfiguration().setSymbolResolver(new JavaSymbolSolver(solver)));
+            ParserConfiguration config = new ParserConfiguration()
+                    .setSymbolResolver(new JavaSymbolSolver(solver));
+            return new JavaParser(config);
         } catch (Exception e) {
             log.warn("Symbol solver setup failed, type resolution will be degraded: {}", e.getMessage());
-            StaticJavaParser.setConfiguration(new ParserConfiguration());
+            return new JavaParser();
         }
     }
 }

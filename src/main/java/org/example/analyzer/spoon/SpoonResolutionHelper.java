@@ -14,12 +14,18 @@ import spoon.reflect.declaration.CtMethod;
 import spoon.reflect.declaration.CtType;
 import spoon.reflect.reference.CtTypeReference;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Shared resolution utilities for Spoon-based pattern extractors.
@@ -46,7 +52,20 @@ import java.util.Optional;
  */
 public class SpoonResolutionHelper {
 
+    private static final Logger log = LoggerFactory.getLogger(SpoonResolutionHelper.class);
+
+    /** Counts how many times resolveFromLombokHierarchy triggers a full model.getAllTypes() scan. */
+    private final AtomicLong lombokScanCount = new AtomicLong(0);
+
     private final CtModel model;
+
+    /**
+     * Pre-built index: FQN → CtType.
+     * Replaces O(N) model.getAllTypes() scans in resolveFromLombokHierarchy and
+     * findFieldTypeInHierarchy with O(1) map lookups.
+     * Built once at construction; read-only during analysis (thread-safe).
+     */
+    private final Map<String, CtType<?>> fqnToType;
 
     /** Resolves class name from any CtExpression. */
     private final ClassNameResolverChain<CtExpression<?>> exprNameChain;
@@ -59,6 +78,14 @@ public class SpoonResolutionHelper {
 
     SpoonResolutionHelper(CtModel model) {
         this.model = model;
+        // Pre-index all types by FQN for O(1) lookup — replaces repeated O(N) scans.
+        Map<String, CtType<?>> index = new HashMap<>();
+        if (model != null) {
+            for (CtType<?> t : model.getAllTypes()) {
+                index.putIfAbsent(t.getQualifiedName(), t);
+            }
+        }
+        this.fqnToType = Collections.unmodifiableMap(index);
         // getterReturnChain must be built first; its last step calls resolveClassName()
         // which internally uses exprNameChain — safe because lambdas capture `this`.
         this.getterReturnChain = buildGetterReturnChain();
@@ -214,21 +241,25 @@ public class SpoonResolutionHelper {
 
     private String resolveFromLombokHierarchy(CtInvocation<?> inv) {
         try {
-            String raw        = inv.getExecutable().getSimpleName();
-            String fieldName  = Character.toLowerCase(raw.charAt(3)) + raw.substring(4);
+            String raw         = inv.getExecutable().getSimpleName();
+            String fieldName   = Character.toLowerCase(raw.charAt(3)) + raw.substring(4);
             String receiverFqn = resolveClassName(inv.getTarget());
 
-            if (receiverFqn != null && model != null) {
-                for (CtType<?> type : model.getAllTypes()) {
-                    if (type.getQualifiedName().equals(receiverFqn)) {
-                        String fieldType = findFieldTypeInHierarchy(type, fieldName);
-                        if (fieldType != null) return fieldType;
-                    }
+            if (receiverFqn != null) {
+                lombokScanCount.incrementAndGet();
+                // O(1) lookup via pre-built index — was O(N) model.getAllTypes() scan
+                CtType<?> type = fqnToType.get(receiverFqn);
+                if (type != null) {
+                    String fieldType = findFieldTypeInHierarchy(type, fieldName);
+                    if (fieldType != null) return fieldType;
                 }
             }
         } catch (Exception ignored) {}
         return null;
     }
+
+    /** Reports accumulated Lombok lookup count — call after analysis to size the problem. */
+    public long getLombokScanCount() { return lombokScanCount.get(); }
 
     private String resolveFromInvocationType(CtInvocation<?> inv) {
         try {
@@ -264,14 +295,8 @@ public class SpoonResolutionHelper {
                 if (superRef == null) break;
                 if ("java.lang.Object".equals(superRef.getQualifiedName())) break;
 
-                String    superFqn  = superRef.getQualifiedName();
-                CtType<?> superType = null;
-                if (model != null) {
-                    for (CtType<?> t : model.getAllTypes()) {
-                        if (t.getQualifiedName().equals(superFqn)) { superType = t; break; }
-                    }
-                }
-                current = superType;
+                // O(1) lookup via pre-built index — was O(N) model.getAllTypes() scan
+                current = fqnToType.get(superRef.getQualifiedName());
             } catch (Exception e) {
                 break;
             }
