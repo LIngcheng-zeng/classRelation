@@ -39,7 +39,6 @@ public class JavaParserAnalyzer implements SourceAnalyzer {
 
     private static final Logger log = LoggerFactory.getLogger(JavaParserAnalyzer.class);
 
-    private final FieldRefExtractor      extractor  = new FieldRefExtractor();
     private final RelationshipClassifier classifier = new RelationshipClassifier();
 
     private final List<MappingExtractor> extractors = List.of(
@@ -51,6 +50,9 @@ public class JavaParserAnalyzer implements SourceAnalyzer {
     @Override
     public List<FieldMapping> analyze(Path projectRoot, SymbolResolutionResult symbols) {
         configureSymbolSolver(projectRoot);
+
+        // Create FieldRefExtractor with Spoon model for hybrid type inference
+        FieldRefExtractor extractor = new FieldRefExtractor(symbols.spoonModel());
 
         List<FieldMapping> mappings = new ArrayList<>();
 
