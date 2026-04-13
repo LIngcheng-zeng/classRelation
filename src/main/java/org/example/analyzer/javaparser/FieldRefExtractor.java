@@ -73,6 +73,7 @@ public class FieldRefExtractor {
                 this::resolveViaAliasExpansion,
                 this::resolveViaSymbolSolver,
                 this::resolveViaHybridTypeInference,  // NEW: hybrid Spoon+JavaParser
+                this::resolveViaArrayAccess,          // NEW: array access arr[i]
                 this::resolveViaContainerAccess,
                 this::resolveViaGetterChain,
                 this::resolveViaHeuristic
@@ -163,6 +164,36 @@ public class FieldRefExtractor {
             return typeName;
         }
 
+        return null;
+    }
+
+    /**
+     * Step 3.5 — resolve array access expressions arr[i] to their component type.
+     * This enables chaining like arr[i].getField() to work correctly.
+     */
+    private String resolveViaArrayAccess(ScopeContext ctx) {
+        if (!(ctx.scope() instanceof ArrayAccessExpr aa)) return null;
+        
+        if (hybridResolver != null) {
+            // Use hybrid resolver to get array component type
+            String componentType = hybridResolver.resolveArrayComponentType(aa.getName(), ctx.aliasMap());
+            if (componentType != null && ClassNameValidator.isValidClassName(componentType)) {
+                log.debug("Hybrid resolved array component type: {}", componentType);
+                return componentType;
+            }
+        }
+        
+        // Fallback to JavaParser SymbolSolver
+        try {
+            ResolvedType arrayType = aa.getName().calculateResolvedType();
+            if (arrayType.isArray()) {
+                ResolvedType componentType = arrayType.asArrayType().getComponentType();
+                if (componentType.isReference()) {
+                    return componentType.asReferenceType().getQualifiedName();
+                }
+            }
+        } catch (Exception ignored) {}
+        
         return null;
     }
 
