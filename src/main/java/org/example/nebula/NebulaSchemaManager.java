@@ -15,7 +15,6 @@ public class NebulaSchemaManager {
 
     private static final int SPACE_WAIT_INTERVAL_MS = 1000;
     private static final int SPACE_WAIT_MAX_ATTEMPTS = 30;
-    private static final int SCHEMA_SETTLE_MS        = 3000;
 
     private final Session session;
     private final String  spaceName;
@@ -142,11 +141,28 @@ public class NebulaSchemaManager {
     }
 
     /**
-     * Waits for TAG/EDGE schema to propagate across all StorageD nodes.
+     * Confirms StorageD has fully synced the new schema by issuing a probe INSERT.
+     * SHOW TAGS returning the tag name only means meta acknowledged it;
+     * a successful DML is the only reliable signal that StorageD is ready.
      */
-    private void waitForSchemaSettle() throws InterruptedException {
-        log.info("Waiting {}ms for schema to settle...", SCHEMA_SETTLE_MS);
-        Thread.sleep(SCHEMA_SETTLE_MS);
+    private void waitForSchemaSettle() throws Exception {
+        log.info("Probing StorageD readiness via test INSERT...");
+        String probeVid   = "__schema_probe__";
+        String probeNgql  = "INSERT VERTEX java_class(fqn, simple_name) VALUES "
+                          + "\"" + probeVid + "\":(\"probe\", \"probe\")";
+        String deleteNgql = "DELETE VERTEX \"" + probeVid + "\"";
+
+        for (int attempt = 1; attempt <= SPACE_WAIT_MAX_ATTEMPTS; attempt++) {
+            ResultSet rs = session.execute(probeNgql);
+            if (rs.isSucceeded()) {
+                session.execute(deleteNgql);   // cleanup probe vertex
+                log.info("StorageD ready after {} probe attempt(s).", attempt);
+                return;
+            }
+            log.debug("StorageD not ready yet (attempt {}): {}", attempt, rs.getErrorMessage());
+            Thread.sleep(SPACE_WAIT_INTERVAL_MS);
+        }
+        throw new IllegalStateException("Timed out waiting for StorageD to accept DML");
     }
 
     // -------------------------------------------------------------------------

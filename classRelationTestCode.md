@@ -5,9 +5,9 @@
 | 项目 | 数值 |
 |---|---|
 | 涉及类关系对（直接） | 22 |
-| 探测型关联（READ） | 11 |
-| 动作型关联（WRITE） | 44 |
-| 推导关联（传递闭包） | 3 |
+| 探测型关联（READ） | 14 |
+| 动作型关联（WRITE） | 32 |
+| 推导关联（传递闭包） | 1 |
 
 ## 关联图谱
 
@@ -24,17 +24,11 @@ flowchart LR
     Employee -.->|"AE: Employee.fullName ≡ PersonSummaryDTO.displayName"| PersonSummaryDTO:::writeRel
     Employee -.->|"AE: Employee.departmentCode ≡ PersonSummaryDTO.mobile"| PersonSummaryDTO:::writeRel
     Employee -.->|"AE: Employee.employeeNo ≡ PersonSummaryDTO.orgCode"| PersonSummaryDTO:::writeRel
-    User -.->|"PD: User.name ≡ AdvancedSyntaxTest.name"| AdvancedSyntaxTest:::writeRel
-    User -.->|"PD: User.email ≡ AdvancedSyntaxTest.email"| AdvancedSyntaxTest:::writeRel
-    User -.->|"PD: User.age ≡ AdvancedSyntaxTest.age"| AdvancedSyntaxTest:::writeRel
-    User -.->|"PD: direct(User.name, Order.customerName) ≡ AdvancedSyntaxTest.name"| AdvancedSyntaxTest:::writeRel
-    Order -.->|"PD: direct(User.name, Order.customerName) ≡ AdvancedSyntaxTest.name"| AdvancedSyntaxTest:::writeRel
     OrderDTO -.->|"has"| Order:::writeRel
     Order -.->|"PD: Order.city ≡ Address.city"| Address:::writeRel
     UserOrderDTO -.->|"has"| User:::writeRel
     User -.->|"PD: User.phone ≡ Account.fullMobile"| Account:::writeRel
     User -.->|"PD: User.id ≡ Account.userId"| Account:::writeRel
-    Invoice -->|"MJ: Invoice.refOrderId ≡ Order.orderId"| Order:::readRel
     UserOrderDTO -.->|"has"| OrderDTO:::writeRel
     Order -.->|"PD: Order.userId ≡ VipUser.id"| VipUser:::writeRel
     User -.->|"PD: User.id ≡ Invoice.buyerId"| Invoice:::writeRel
@@ -56,7 +50,35 @@ flowchart LR
 ```mermaid
 flowchart LR
     linkStyle default stroke:#999,stroke-width:1px
+    GetModel1 -->|"PD: GetModel1.key ≡ GetModel2.key"| GetModel2:::readRel
+    GetModel1 -->|"AE: GetModel1.key2 ≡ GetModel2.key2"| GetModel2:::readRel
+    classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
+    classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
+    classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
+```
+
+```mermaid
+flowchart LR
+    linkStyle default stroke:#999,stroke-width:1px
+    CrossFileModel2 -->|"MJ: CrossFileModel2.key ≡ CrossFileModel.key"| CrossFileModel:::readRel
+    classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
+    classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
+    classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
+```
+
+```mermaid
+flowchart LR
+    linkStyle default stroke:#999,stroke-width:1px
     Item -.->|"PD: Item.item ≡ ItemDetail.item"| ItemDetail:::writeRel
+    classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
+    classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
+    classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
+```
+
+```mermaid
+flowchart LR
+    linkStyle default stroke:#999,stroke-width:1px
+    Enterprise -->|"MJ: Enterprise.name ≡ Bottom.manufacturer"| Bottom:::readRel
     classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
     classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
     classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
@@ -127,8 +149,6 @@ flowchart LR
 
 | 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
 |---|---|---|---|---|---|
-| `orderId` | `Invoice.refOrderId` | MAP_JOIN | READ | `testCrossFileFieldMap(implicit-map-join)` |
-| | *((Order) (orderIndexService.getOrderIndex().get(invoice.getRefOrderId())))* | | | |
 | `phone, userId` | `User.id`, `User.phone` | COMPOSITE | READ | `CompositeProjectionTest.java:21` |
 | | *userAndPhone.equals(orderAndPhone)* | | | |
 
@@ -155,6 +175,15 @@ flowchart LR
 | `areaCode` | `Address.zip` | PARAMETERIZED | READ | `NormalizationTest.java:16` | `toLowerCase()` |
 | | *address.getZip().toLowerCase().equals(user.getAreaCode())* | | | |
 
+### GetModel2
+
+| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+|---|---|---|---|---|---|
+| `key` | `GetModel1.key` | PARAMETERIZED | READ | `GetTest.java:19` |
+| | *model1s.get(0).getKey().equals(model2s.get(0).getKey())* | | | |
+| `key2` | `GetModel1.key2` | ATOMIC | READ | `GetTest.java:23` |
+| | *model1s1[0].getKey2().equals(model1s2[0].getKey2())* | | | |
+
 ### PersonSummaryDTO
 
 | 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
@@ -172,19 +201,6 @@ flowchart LR
 |  | `Employee.employeeNo` | ATOMIC | WRITE | `MultiSourceMappingTest.java:30` |
 | | *dto.setOrgCode(emp.getEmployeeNo())* | | | |
 
-### AdvancedSyntaxTest
-
-| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
-|---|---|---|---|---|---|
-| `age` | `User.age` | PARAMETERIZED | WRITE | `testComplexLambda(direct-setter)` |
-| | *test.setAge(u.getAge())* | | | |
-| `email` | `User.email` | PARAMETERIZED | WRITE | `testCast(direct-setter)` |
-| | *test.setEmail(user.getEmail())* | | | |
-| `name` | `User.name` | PARAMETERIZED | WRITE | `testCast(direct-setter)` |
-| | *test.setName(user.getName())* | | | |
-|  | `User.name`, `Order.customerName` | PARAMETERIZED | WRITE | `testSwitchExpression(direct-setter)` |
-| | *test.setName(value)* | | | |
-
 ### Address
 
 | 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
@@ -201,12 +217,26 @@ flowchart LR
 | `userId` | `User.id` | PARAMETERIZED | WRITE | `createAccountFromUser(constructor-call)` |
 | | *new Account(userOrderDTO.getUser().getPhone(), userOrderDTO.getUser().getId())* | | | |
 
+### CrossFileModel
+
+| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+|---|---|---|---|---|---|
+| `key` | `CrossFileModel2.key` | MAP_JOIN | READ | `testCrossFile(implicit-map-join)` |
+| | *CrossFileTest.model1Map.get(crossFileModel2.getKey())* | | | |
+
 ### ItemDetail
 
 | 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
 |---|---|---|---|---|---|
 | `item` | `Item.item` | PARAMETERIZED | WRITE | `testGeneric(builder)` |
 | | *ItemDetail.builder().item(item)* | | | |
+
+### Bottom
+
+| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
+|---|---|---|---|---|---|
+| `manufacturer` | `Enterprise.name` | MAP_JOIN | READ | `testGeneric(implicit-map-join)` |
+| | *nameMapProduct.forEach((name, product) -> {     productMapImg.put(product, nameMapImg.get(name)); })* | | | |
 
 ### Supplier
 
@@ -252,16 +282,4 @@ flowchart LR
 | 目标字段 | 源表字段集合 | 推导路径 |
 |---|---|---|
 | id | `User.id`, `User.phone` | *[User.id, User.phone] → [Order.userId, Order.phone] → VipUser.id* |
-
-### Order
-
-| 目标字段 | 源表字段集合 | 推导路径 |
-|---|---|---|
-| orderId | `Order.orderId` | *Order.orderId → Invoice.refOrderId → Order.orderId* |
-
-### Invoice
-
-| 目标字段 | 源表字段集合 | 推导路径 |
-|---|---|---|
-| refOrderId | `Invoice.refOrderId` | *Invoice.refOrderId → Order.orderId → Invoice.refOrderId* |
 
