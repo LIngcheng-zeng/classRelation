@@ -141,11 +141,38 @@ public class NebulaSchemaManager {
     }
 
     /**
-     * Confirms StorageD has fully synced the new schema by issuing a probe INSERT.
-     * SHOW TAGS returning the tag name only means meta acknowledged it;
-     * a successful DML is the only reliable signal that StorageD is ready.
+     * Two-phase schema settle:
+     *   Phase 1 — poll SHOW TAGS until 'java_class' is visible in the meta layer.
+     *             This eliminates "No schema found" SemanticErrors in phase 2.
+     *   Phase 2 — probe with a real INSERT to confirm StorageD has synced the schema.
+     *             Only a successful DML guarantees full readiness.
      */
     private void waitForSchemaSettle() throws Exception {
+        waitForTagVisible();
+        waitForStorageDReady();
+    }
+
+    /** Phase 1: wait until SHOW TAGS lists 'java_class'. */
+    private void waitForTagVisible() throws Exception {
+        log.info("Waiting for TAG 'java_class' to be visible in meta...");
+        for (int attempt = 1; attempt <= SPACE_WAIT_MAX_ATTEMPTS; attempt++) {
+            ResultSet rs = session.execute("SHOW TAGS");
+            if (rs.isSucceeded()) {
+                for (int row = 0; row < rs.rowsSize(); row++) {
+                    if ("java_class".equalsIgnoreCase(rs.rowValues(row).get(0).asString())) {
+                        log.info("TAG 'java_class' visible after {} attempt(s).", attempt);
+                        return;
+                    }
+                }
+            }
+            log.debug("TAG not visible yet (attempt {}), retrying...", attempt);
+            Thread.sleep(SPACE_WAIT_INTERVAL_MS);
+        }
+        throw new IllegalStateException("Timed out waiting for TAG 'java_class' to appear in meta");
+    }
+
+    /** Phase 2: probe with a real INSERT to confirm StorageD DML readiness. */
+    private void waitForStorageDReady() throws Exception {
         log.info("Probing StorageD readiness via test INSERT...");
         String probeVid   = "__schema_probe__";
         String probeNgql  = "INSERT VERTEX java_class(fqn, simple_name) VALUES "

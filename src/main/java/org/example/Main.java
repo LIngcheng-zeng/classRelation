@@ -4,6 +4,7 @@ import org.example.analyzer.LineageAnalyzer;
 import org.example.model.ClassRelation;
 import org.example.nebula.NebulaConfig;
 import org.example.nebula.NebulaWriter;
+import org.example.renderer.AntVG6HtmlRenderer;
 import org.example.renderer.MarkdownDocumentRenderer;
 import org.example.util.PackageFilter;
 import org.slf4j.Logger;
@@ -104,7 +105,12 @@ public class Main {
             Path outputFile = Paths.get(projectName + suffix + ".md");
             Files.writeString(outputFile, content, StandardCharsets.UTF_8);
 
+            String htmlContent = new AntVG6HtmlRenderer().render(projectName, filteredRelations);
+            Path htmlOutputFile = Paths.get(projectName + suffix + ".html");
+            Files.writeString(htmlOutputFile, htmlContent, StandardCharsets.UTF_8);
+
             System.out.println("Report written to: " + outputFile.toAbsolutePath());
+            System.out.println("Graph HTML written to: " + htmlOutputFile.toAbsolutePath());
             System.out.println("  " + filteredRelations.size() + " class relation(s), "
                     + filteredRelations.stream().mapToLong(r -> r.mappings().size()).sum() + " mapping(s) found.");
 
