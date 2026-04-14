@@ -2,6 +2,8 @@ package org.example;
 
 import org.example.analyzer.LineageAnalyzer;
 import org.example.model.ClassRelation;
+import org.example.nebula.NebulaConfig;
+import org.example.nebula.NebulaWriter;
 import org.example.renderer.MarkdownDocumentRenderer;
 import org.example.util.PackageFilter;
 import org.slf4j.Logger;
@@ -96,15 +98,26 @@ public class Main {
                 return;
             }
 
-            String content = new MarkdownDocumentRenderer().render(projectName, filteredRelations);
-
             String suffix = !targetPackages.isEmpty() ? "-filtered" : "";
+
+            String content = new MarkdownDocumentRenderer().render(projectName, filteredRelations);
             Path outputFile = Paths.get(projectName + suffix + ".md");
             Files.writeString(outputFile, content, StandardCharsets.UTF_8);
 
             System.out.println("Report written to: " + outputFile.toAbsolutePath());
             System.out.println("  " + filteredRelations.size() + " class relation(s), "
                     + filteredRelations.stream().mapToLong(r -> r.mappings().size()).sum() + " mapping(s) found.");
+
+            // Write to NebulaGraph
+            String spaceName = toNebulaSpaceName(projectName + suffix);
+            NebulaConfig nebulaConfig = NebulaConfig.defaultLocal(spaceName);
+            try (NebulaWriter writer = new NebulaWriter(nebulaConfig)) {
+                writer.write(filteredRelations);
+                System.out.println("NebulaGraph written to space: " + spaceName);
+            } catch (Exception e) {
+                log.warn("NebulaGraph write failed (non-fatal): {}", e.getMessage());
+                System.err.println("Warning: NebulaGraph write failed: " + e.getMessage());
+            }
 
         } catch (IOException e) {
             System.err.println("Failed to write report: " + e.getMessage());
@@ -117,6 +130,19 @@ public class Main {
         }
     }
     
+    /**
+     * Converts a project name to a valid NebulaGraph space name.
+     * Rules: start with letter/underscore, only [a-zA-Z0-9_], max 256 chars.
+     * Example: "myProject-filtered" → "myProject_filtered"
+     */
+    private static String toNebulaSpaceName(String name) {
+        String sanitized = name.replaceAll("[^a-zA-Z0-9_]", "_");
+        if (!sanitized.isEmpty() && Character.isDigit(sanitized.charAt(0))) {
+            sanitized = "_" + sanitized;
+        }
+        return sanitized.length() > 256 ? sanitized.substring(0, 256) : sanitized;
+    }
+
     /**
      * Builds a map of simple class name to fully qualified name by scanning Java files.
      */
