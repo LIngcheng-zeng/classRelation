@@ -4,12 +4,7 @@ import org.example.model.ClassRelation;
 import org.example.model.FieldMapping;
 import org.example.model.MappingMode;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Renders class lineage relations as a standalone interactive HTML page
@@ -38,7 +33,9 @@ public class AntVG6HtmlRenderer {
         Set<String> parents = new LinkedHashSet<>();
 
         for (ClassRelation rel : relations) {
-            nodeIds.add(rel.simpleSourceClass());
+            if (!"__derived__".equals(rel.simpleSourceClass())) {
+                nodeIds.add(rel.simpleSourceClass());
+            }
             nodeIds.add(rel.simpleTargetClass());
             if (rel.inheritance() != null) {
                 nodeIds.add(rel.inheritance().simpleChildClass());
@@ -68,7 +65,9 @@ public class AntVG6HtmlRenderer {
     private Set<String> collectNodeIds(List<ClassRelation> relations) {
         Set<String> ids = new LinkedHashSet<>();
         for (ClassRelation rel : relations) {
-            ids.add(rel.simpleSourceClass());
+            if (!"__derived__".equals(rel.simpleSourceClass())) {
+                ids.add(rel.simpleSourceClass());
+            }
             ids.add(rel.simpleTargetClass());
             if (rel.inheritance() != null) {
                 ids.add(rel.inheritance().simpleChildClass());
@@ -84,6 +83,7 @@ public class AntVG6HtmlRenderer {
         for (String id : nodeIds) parent.put(id, id);
 
         for (ClassRelation rel : relations) {
+            if ("__derived__".equals(rel.simpleSourceClass())) continue;
             union(parent, rel.simpleSourceClass(), rel.simpleTargetClass());
             if (rel.inheritance() != null) {
                 union(parent, rel.inheritance().simpleChildClass(),
@@ -219,6 +219,8 @@ public class AntVG6HtmlRenderer {
         if (label.length() > 28) label = label.substring(0, 25) + "...";
         int extra = mappings.size() - 1;
         if (extra > 0) label += " (+" + extra + ")";
+        // Simplify composition/holding labels (holds → held) to "has"
+        if (label.contains("holds") && label.contains("held")) label = "has";
         return label;
     }
 
@@ -368,6 +370,8 @@ public class AntVG6HtmlRenderer {
       INHERIT: '#388e3c',
     };
 
+                    // node type is declared at graph-config level (more reliable than per-node data)
+                
     // Build combo structure when multiple components exist
     const componentIds = [...new Set(NODES.map(n => n.data.componentId))];
     const multiComponent = componentIds.length > 1;
@@ -379,9 +383,9 @@ public class AntVG6HtmlRenderer {
       : [];
 
     // ── Pre-render layout engine (pure JS, no dependency on G6 layout) ───────
-    const LAYER_SEP = 120;   // px — vertical gap between layers
-    const NODE_SEP  = 110;   // px — horizontal gap between nodes in same layer
-    const COMP_GAP  = 200;   // px — horizontal gap between components
+                    const LAYER_SEP = 160;   // px — horizontal gap between layers  (LR direction)
+                    const NODE_SEP  =  90;   // px — vertical gap between nodes in the same layer
+                    const COMP_GAP  = 120;   // px — vertical gap between components
 
     /** Partition nodes and edges by componentId. */
     function groupByComponent(nodes, edges) {
@@ -451,30 +455,30 @@ public class AntVG6HtmlRenderer {
     }
 
     /**
-     * Pack components left-to-right, widest (most nodes) first.
-     * Returns offsetX per component and the sorted component order.
+                     * Pack components top-to-bottom (LR layout: tallest first).
+                     * Returns { offsetX, offsetY } per component and the sorted component order.
      */
     function packComponents(groups, allLayers) {
       const cids = Object.keys(groups)
         .sort((a, b) => groups[b].nodeIds.length - groups[a].nodeIds.length);
       const offsets = {};
-      let curX = 0;
+                      let curY = 0;
       cids.forEach(cid => {
-        offsets[cid] = curX;
+                        offsets[cid] = { offsetX: 0, offsetY: curY };
         const byLayer = {};
         groups[cid].nodeIds.forEach(id => {
           const l = allLayers[cid][id] || 0;
           byLayer[l] = (byLayer[l] || 0) + 1;
         });
         const maxCount = Math.max(...Object.values(byLayer), 1);
-        curX += (maxCount - 1) * NODE_SEP + NODE_SEP + COMP_GAP;
+                        curY += (maxCount - 1) * NODE_SEP + NODE_SEP + COMP_GAP;
       });
       return { offsets, orderedIds: cids };
     }
 
     /**
-     * Greedy coloring: components are arranged left-to-right, so only immediate
-     * left-neighbour needs a different colour.
+                     * Greedy coloring: components are stacked top-to-bottom, so only the immediate
+                     * upper neighbour needs a different colour.
      */
     function computeGridColors(orderedIds, palette) {
       const cidx = new Array(orderedIds.length).fill(null);
@@ -506,8 +510,8 @@ public class AntVG6HtmlRenderer {
 
       orderedIds.forEach(cid => {
         const { nodeIds, edges } = groups[cid];
-        const layerMap = allLayers[cid];
-        const offsetX  = offsets[cid];
+                        const layerMap             = allLayers[cid];
+                        const { offsetX, offsetY } = offsets[cid];
 
         // Bucket nodes by layer, then apply barycenter ordering
         const byLayer = {};
@@ -520,21 +524,26 @@ public class AntVG6HtmlRenderer {
           .sort((a, b) => Number(a) - Number(b))
           .forEach(l => { byLayer[l] = orderLayer(byLayer[l], Number(l), edges, layerMap); });
 
-        // Write final x, y into node.style (used by G6 preset layout)
+                        // LR layout: layer depth → x axis,  position within layer → y axis
         Object.entries(byLayer).forEach(([l, ids]) => {
-          const totalW = (ids.length - 1) * NODE_SEP;
+                          const totalH = (ids.length - 1) * NODE_SEP;
           ids.forEach((id, i) => {
             const node = NODES.find(n => n.id === id);
             if (!node) return;
             node.style   = node.style || {};
-            node.style.x = offsetX + i * NODE_SEP - totalW / 2 + NODE_SEP / 2;
-            node.style.y = Number(l) * LAYER_SEP + 80;
+                            node.style.x = offsetX + Number(l) * LAYER_SEP + 80;
+                            node.style.y = offsetY + i * NODE_SEP - totalH / 2 + NODE_SEP / 2;
           });
         });
       });
     }
     // ────────────────────────────────────────────────────────────────────────
 
+                    // Node width: 9px per character (conservative for bold sans-serif) + 24px padding
+                    function measureLabel(text) {
+                      return (text || '').length * 9 + 24;
+                    }
+                
     // Radial centre (single-component only)
     function findCenterId(nodes, edges) {
       const deg = {};
@@ -563,28 +572,29 @@ public class AntVG6HtmlRenderer {
         data: { nodes: NODES, edges: EDGES, combos },
         layout: layoutConfig,
         node: {
+                          type: 'rect',
           style: (model) => {
             const isParent   = model.data && model.data.nodeType === 'parent';
             const cid        = String((model.data && model.data.componentId) || 0);
             const paletteIdx = gridColors ? (gridColors[cid] ?? 0) : (parseInt(cid) || 0);
             const fill       = COMPONENT_PALETTE[paletteIdx % COMPONENT_PALETTE.length];
+                            const w          = measureLabel(model.id);
             return {
-              size: 56,
+                              size:      [w, 24],
+                              radius:    8,
               fill,
               stroke:    isParent ? '#2e8b57' : fill,
-              lineWidth: isParent ? 3 : 2,
-              shadowBlur: 10,
-              shadowColor: 'rgba(0,0,0,0.10)',
+                              lineWidth: isParent ? 3 : 1.5,
+                              shadowBlur: 8,
+                              shadowColor: 'rgba(0,0,0,0.12)',
               cursor: 'pointer',
-              labelText: model.id,
-              labelFill: '#222',
-              labelFontSize: 12,
+                              labelText:       model.id,
+                              labelFill:       '#fff',
+                              labelFontSize:   12,
               labelFontWeight: '600',
-              labelOffsetY: 38,
-              labelWordWrap: false,
-              labelBackgroundFill: 'rgba(255,255,255,0.88)',
-              labelBackgroundPadding: [2, 6, 2, 6],
-              labelBackgroundRadius: 3,
+                              labelPlacement:  'center',
+                              labelOffsetY:    0,
+                              labelWordWrap:   false,
             };
           },
         },
