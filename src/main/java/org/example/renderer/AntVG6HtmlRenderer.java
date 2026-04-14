@@ -342,14 +342,24 @@ public class AntVG6HtmlRenderer {
     <div class="legend-item"><div class="legend-line" style="background:#9c27b0"></div><span>MIXED</span></div>
     <div class="legend-item"><div class="legend-line" style="background:repeating-linear-gradient(90deg,#388e3c 0,#388e3c 5px,transparent 5px,transparent 9px)"></div><span>INHERIT</span></div>
     <div style="margin-top:6px;border-top:1px solid #eee;padding-top:6px">
-      <div class="legend-item"><div class="legend-dot" style="background:#5B8FF9;color:#5B8FF9"></div><span>Class</span></div>
-      <div class="legend-item"><div class="legend-dot" style="background:#61DDAA;color:#61DDAA"></div><span>Parent class</span></div>
+      <div class="legend-item" style="color:#777;font-style:italic;font-size:11px">Same color = same component</div>
+      <div class="legend-item" style="margin-top:4px">
+        <div class="legend-dot" style="background:#aaa;color:#aaa;box-shadow:0 0 0 2.5px #2e8b57"></div>
+        <span>Parent class</span>
+      </div>
     </div>
   </div>
 
   <script>
     const NODES = __NODES_JSON__;
     const EDGES = __EDGES_JSON__;
+
+    // 10-color palette — hue-alternated so consecutive indices are visually distinct
+    const COMPONENT_PALETTE = [
+      '#5B8FF9', '#FF9845', '#61DDAA', '#945FB9',
+      '#F6BD16', '#6DC8EC', '#E86452', '#5D7092',
+      '#1D7DB2', '#C2B26E',
+    ];
 
     const EDGE_COLORS = {
       READ:    '#1976d2',
@@ -358,38 +368,211 @@ public class AntVG6HtmlRenderer {
       INHERIT: '#388e3c',
     };
 
-    // Pick the highest-degree node as radial center; fall back to first node.
+    // Build combo structure when multiple components exist
+    const componentIds = [...new Set(NODES.map(n => n.data.componentId))];
+    const multiComponent = componentIds.length > 1;
+    if (multiComponent) {
+      NODES.forEach(n => { n.combo = String(n.data.componentId); });
+    }
+    const combos = multiComponent
+      ? componentIds.map(id => ({ id: String(id), data: {} }))
+      : [];
+
+    // ── Pre-render layout engine (pure JS, no dependency on G6 layout) ───────
+    const LAYER_SEP = 120;   // px — vertical gap between layers
+    const NODE_SEP  = 110;   // px — horizontal gap between nodes in same layer
+    const COMP_GAP  = 200;   // px — horizontal gap between components
+
+    /** Partition nodes and edges by componentId. */
+    function groupByComponent(nodes, edges) {
+      const groups   = {};
+      const nodeComp = {};
+      nodes.forEach(n => {
+        const cid = String(n.data.componentId);
+        nodeComp[n.id] = cid;
+        if (!groups[cid]) groups[cid] = { nodeIds: [], edges: [] };
+        groups[cid].nodeIds.push(n.id);
+      });
+      edges.forEach(e => {
+        const cid = nodeComp[e.source];
+        if (cid && groups[cid]) groups[cid].edges.push(e);
+      });
+      return groups;
+    }
+
+    /**
+     * Assign a 0-based layer index to each node using Kahn's topological sort
+     * with longest-path assignment. Cycle nodes default to layer 0.
+     */
+    function assignLayers(nodeIds, edges) {
+      const inDeg  = {};
+      const outAdj = {};
+      const nodeSet = new Set(nodeIds);
+      nodeIds.forEach(id => { inDeg[id] = 0; outAdj[id] = []; });
+      edges.forEach(e => {
+        if (!nodeSet.has(e.source) || !nodeSet.has(e.target) || e.source === e.target) return;
+        outAdj[e.source].push(e.target);
+        inDeg[e.target]++;
+      });
+      const layer = {};
+      nodeIds.forEach(id => { layer[id] = 0; });
+      const queue = nodeIds.filter(id => inDeg[id] === 0);
+      let head = 0;
+      while (head < queue.length) {
+        const cur = queue[head++];
+        (outAdj[cur] || []).forEach(next => {
+          layer[next] = Math.max(layer[next] || 0, (layer[cur] || 0) + 1);
+          if (--inDeg[next] === 0) queue.push(next);
+        });
+      }
+      return layer;
+    }
+
+    /**
+     * Barycenter heuristic: re-order nodes in a layer to minimise edge crossings
+     * with the previous layer.
+     */
+    function orderLayer(layerNodeIds, layerIndex, edges, layerMap) {
+      if (layerIndex === 0 || layerNodeIds.length <= 1) return layerNodeIds;
+      const prevPos = {};
+      let pos = 0;
+      Object.entries(layerMap)
+        .filter(([, l]) => l === layerIndex - 1)
+        .forEach(([id]) => { prevPos[id] = pos++; });
+      const bary = {};
+      layerNodeIds.forEach(id => {
+        const nbrs = edges
+          .filter(e => (e.target === id && prevPos[e.source] !== undefined) ||
+                       (e.source === id && prevPos[e.target] !== undefined))
+          .map(e => e.source === id ? prevPos[e.target] : prevPos[e.source]);
+        bary[id] = nbrs.length ? nbrs.reduce((s, v) => s + v, 0) / nbrs.length : 1e9;
+      });
+      return [...layerNodeIds].sort((a, b) => bary[a] - bary[b]);
+    }
+
+    /**
+     * Pack components left-to-right, widest (most nodes) first.
+     * Returns offsetX per component and the sorted component order.
+     */
+    function packComponents(groups, allLayers) {
+      const cids = Object.keys(groups)
+        .sort((a, b) => groups[b].nodeIds.length - groups[a].nodeIds.length);
+      const offsets = {};
+      let curX = 0;
+      cids.forEach(cid => {
+        offsets[cid] = curX;
+        const byLayer = {};
+        groups[cid].nodeIds.forEach(id => {
+          const l = allLayers[cid][id] || 0;
+          byLayer[l] = (byLayer[l] || 0) + 1;
+        });
+        const maxCount = Math.max(...Object.values(byLayer), 1);
+        curX += (maxCount - 1) * NODE_SEP + NODE_SEP + COMP_GAP;
+      });
+      return { offsets, orderedIds: cids };
+    }
+
+    /**
+     * Greedy coloring: components are arranged left-to-right, so only immediate
+     * left-neighbour needs a different colour.
+     */
+    function computeGridColors(orderedIds, palette) {
+      const cidx = new Array(orderedIds.length).fill(null);
+      for (let i = 0; i < orderedIds.length; i++) {
+        const used = new Set();
+        if (i > 0 && cidx[i - 1] != null) used.add(cidx[i - 1]);
+        for (let c = 0; c < palette.length; c++) {
+          if (!used.has(c)) { cidx[i] = c; break; }
+        }
+        if (cidx[i] == null) cidx[i] = 0;
+      }
+      const map = {};
+      orderedIds.forEach((cid, i) => { map[cid] = cidx[i]; });
+      return map;
+    }
+
+    // ── Orchestrate ──────────────────────────────────────────────────────────
+    let gridColors = null;
+
+    if (multiComponent) {
+      const groups    = groupByComponent(NODES, EDGES);
+      const allLayers = {};
+      Object.keys(groups).forEach(cid => {
+        allLayers[cid] = assignLayers(groups[cid].nodeIds, groups[cid].edges);
+      });
+
+      const { offsets, orderedIds } = packComponents(groups, allLayers);
+      gridColors = computeGridColors(orderedIds, COMPONENT_PALETTE);
+
+      orderedIds.forEach(cid => {
+        const { nodeIds, edges } = groups[cid];
+        const layerMap = allLayers[cid];
+        const offsetX  = offsets[cid];
+
+        // Bucket nodes by layer, then apply barycenter ordering
+        const byLayer = {};
+        nodeIds.forEach(id => {
+          const l = layerMap[id] || 0;
+          if (!byLayer[l]) byLayer[l] = [];
+          byLayer[l].push(id);
+        });
+        Object.keys(byLayer)
+          .sort((a, b) => Number(a) - Number(b))
+          .forEach(l => { byLayer[l] = orderLayer(byLayer[l], Number(l), edges, layerMap); });
+
+        // Write final x, y into node.style (used by G6 preset layout)
+        Object.entries(byLayer).forEach(([l, ids]) => {
+          const totalW = (ids.length - 1) * NODE_SEP;
+          ids.forEach((id, i) => {
+            const node = NODES.find(n => n.id === id);
+            if (!node) return;
+            node.style   = node.style || {};
+            node.style.x = offsetX + i * NODE_SEP - totalW / 2 + NODE_SEP / 2;
+            node.style.y = Number(l) * LAYER_SEP + 80;
+          });
+        });
+      });
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
+    // Radial centre (single-component only)
     function findCenterId(nodes, edges) {
       const deg = {};
       nodes.forEach(n => { deg[n.id] = 0; });
       edges.forEach(e => { deg[e.source] = (deg[e.source]||0)+1; deg[e.target] = (deg[e.target]||0)+1; });
       return nodes.reduce((best, n) => (deg[n.id]||0) >= (deg[best.id]||0) ? n : best, nodes[0]).id;
     }
-    const focusNodeId = NODES.length ? findCenterId(NODES, EDGES) : undefined;
+    const focusNodeId = !multiComponent && NODES.length ? findCenterId(NODES, EDGES) : undefined;
+
+    // preset: use pre-computed x/y; radial: single fully-connected component
+    const layoutConfig = multiComponent ? { type: 'preset' } : {
+      type: 'radial',
+      focusNode: focusNodeId,
+      unitRadius: 160,
+      linkDistance: 200,
+      preventOverlap: true,
+      nodeSize: 64,
+      nodeSpacing: 24,
+      strictRadial: false,
+      maxPreventOverlapIteration: 300,
+    };
 
     (async () => {
       const graph = new G6.Graph({
         container: 'container',
-        data: { nodes: NODES, edges: EDGES },
-        layout: {
-          type: 'radial',
-          focusNode: focusNodeId,
-          unitRadius: 160,
-          linkDistance: 200,
-          preventOverlap: true,
-          nodeSize: 64,
-          nodeSpacing: 24,
-          strictRadial: false,
-          maxPreventOverlapIteration: 300,
-        },
+        data: { nodes: NODES, edges: EDGES, combos },
+        layout: layoutConfig,
         node: {
           style: (model) => {
-            const isParent = model.data && model.data.nodeType === 'parent';
+            const isParent   = model.data && model.data.nodeType === 'parent';
+            const cid        = String((model.data && model.data.componentId) || 0);
+            const paletteIdx = gridColors ? (gridColors[cid] ?? 0) : (parseInt(cid) || 0);
+            const fill       = COMPONENT_PALETTE[paletteIdx % COMPONENT_PALETTE.length];
             return {
               size: 56,
-              fill: isParent ? '#61DDAA' : '#5B8FF9',
-              stroke: isParent ? '#2e8b57' : '#3068d6',
-              lineWidth: 2,
+              fill,
+              stroke:    isParent ? '#2e8b57' : fill,
+              lineWidth: isParent ? 3 : 2,
               shadowBlur: 10,
               shadowColor: 'rgba(0,0,0,0.10)',
               cursor: 'pointer',
@@ -407,8 +590,8 @@ public class AntVG6HtmlRenderer {
         },
         edge: {
           style: (model) => {
-            const type  = (model.data && model.data.edgeType) || 'READ';
-            const color = EDGE_COLORS[type] || '#999';
+            const type     = (model.data && model.data.edgeType) || 'READ';
+            const color    = EDGE_COLORS[type] || '#999';
             const isDashed = type === 'INHERIT';
             return {
               stroke: color,
@@ -425,6 +608,22 @@ public class AntVG6HtmlRenderer {
               labelBackgroundPadding: [2, 5, 2, 5],
               labelBackgroundRadius: 3,
               labelOffsetY: -8,
+            };
+          },
+        },
+        combo: {
+          style: (model) => {
+            const paletteIdx = gridColors ? (gridColors[model.id] ?? 0) : 0;
+            const color      = COMPONENT_PALETTE[paletteIdx % COMPONENT_PALETTE.length];
+            return {
+              fill:          color,
+              fillOpacity:   0.08,
+              stroke:        color,
+              strokeOpacity: 0.5,
+              lineWidth:     2,
+              radius:        16,
+              lineDash:      [6, 3],
+              labelText:     '',
             };
           },
         },
@@ -449,8 +648,6 @@ public class AntVG6HtmlRenderer {
       });
 
       await graph.render();
-
-      // Fit graph into viewport after radial layout is applied
       setTimeout(function() { graph.fitView({ padding: 60 }); }, 200);
     })();
   </script>
