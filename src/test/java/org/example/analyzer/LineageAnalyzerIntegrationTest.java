@@ -1,6 +1,7 @@
 package org.example.analyzer;
 
 import org.example.model.ClassRelation;
+import org.example.renderer.AntVG6HtmlRenderer;
 import org.example.renderer.TableRenderer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -49,6 +50,61 @@ class LineageAnalyzerIntegrationTest {
     void shouldRenderTable() {
         List<ClassRelation> relations = analyzer.analyze(testProjectRoot);
         System.out.println(new TableRenderer().render(relations));
+    }
+
+    @Test
+    void shouldExportJsonAndConfig() throws Exception {
+        // 分析项目
+        List<ClassRelation> relations = analyzer.analyze(testProjectRoot);
+        assertFalse(relations.isEmpty(), "应该有类关系数据");
+        
+        // 创建渲染器
+        AntVG6HtmlRenderer renderer = new AntVG6HtmlRenderer();
+        
+        // 导出 JSON 数据
+        String json = renderer.exportJson(relations);
+        assertNotNull(json);
+        assertTrue(json.contains("\"nodes\""), "JSON 应包含 nodes 字段");
+        assertTrue(json.contains("\"edges\""), "JSON 应包含 edges 字段");
+        System.out.println("\n=== JSON 导出成功 ===");
+        System.out.println("JSON 长度: " + json.length() + " 字符");
+        
+        // 生成配置文件
+        int nodeCount = (int) json.chars().filter(c -> c == '{').count(); // 简单估算
+        int edgeCount = relations.size();
+        String config = renderer.generateDataSourceConfig(
+            "TestProject", "data.json", nodeCount, edgeCount
+        );
+        assertNotNull(config);
+        assertTrue(config.contains("\"dataSource\""), "配置应包含 dataSource");
+        assertTrue(config.contains("\"metadata\""), "配置应包含 metadata");
+        System.out.println("\n=== 配置文件生成成功 ===");
+        System.out.println(config);
+        
+        // 保存文件到临时目录
+        File tempDir = new File(System.getProperty("java.io.tmpdir"), "graphify-test");
+        tempDir.mkdirs();
+        
+        String jsonPath = new File(tempDir, "data.json").getAbsolutePath();
+        String configPath = new File(tempDir, "datasource-config.json").getAbsolutePath();
+        String htmlPath = new File(tempDir, "graph.html").getAbsolutePath();
+        
+        renderer.saveAsJson(relations, jsonPath);
+        renderer.saveDataSourceConfig("TestProject", "data.json", nodeCount, edgeCount, configPath);
+        
+        // 生成 HTML（使用外部配置模式）
+        String html = renderer.renderWithExternalConfig("TestProject");
+        java.nio.file.Files.writeString(Paths.get(htmlPath), html);
+        
+        System.out.println("\n=== 文件已保存 ===");
+        System.out.println("JSON: " + jsonPath);
+        System.out.println("Config: " + configPath);
+        System.out.println("HTML: " + htmlPath);
+        
+        // 验证文件存在
+        assertTrue(new File(jsonPath).exists(), "JSON 文件应该存在");
+        assertTrue(new File(configPath).exists(), "配置文件应该存在");
+        assertTrue(new File(htmlPath).exists(), "HTML 文件应该存在");
     }
 
     @Test
