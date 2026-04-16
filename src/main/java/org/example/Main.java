@@ -1,6 +1,7 @@
 package org.example;
 
 import org.example.analyzer.LineageAnalyzer;
+import org.example.config.AppConfig;
 import org.example.model.ClassRelation;
 import org.example.nebula.NebulaConfig;
 import org.example.nebula.NebulaWriter;
@@ -24,15 +25,25 @@ public class Main {
     private static final Logger log = LoggerFactory.getLogger(Main.class);
 
     public static void main(String[] args) {
-        // Parse command-line arguments
+        // Load configuration from file
+        AppConfig config = AppConfig.getInstance();
+        
+        // Parse command-line arguments (override config if provided)
         Path projectRoot = null;
-        List<String> targetPackages = new ArrayList<>();
-        boolean includeTransitive = true; // Default: include relations where at least one side matches
+        List<String> targetPackages = new ArrayList<>(config.getPackageFilters());
+        boolean includeTransitive = !config.isStrictMode(); // Default from config
+        boolean packageFilterFromConfig = !targetPackages.isEmpty();
 
         for (int i = 0; i < args.length; i++) {
             if (args[i].equals("--package") || args[i].equals("-p")) {
                 if (i + 1 < args.length) {
-                    targetPackages.add(args[++i]);
+                    String pkg = args[++i];
+                    // If --package is specified on command line, replace config filters
+                    if (!packageFilterFromConfig) {
+                        targetPackages.clear();
+                    }
+                    targetPackages.add(pkg);
+                    packageFilterFromConfig = false; // Mark as overridden by CLI
                 } else {
                     System.err.println("Error: --package requires a value");
                     System.exit(1);
@@ -47,11 +58,19 @@ public class Main {
             }
         }
 
+        // Use sample code path from config if no project root specified
+        if (projectRoot == null && !config.getSampleCodePath().isEmpty()) {
+            projectRoot = Paths.get(config.getSampleCodePath()).toAbsolutePath().normalize();
+            System.out.println("Using sample code path from config: " + projectRoot);
+        }
+
         if (projectRoot == null) {
-            System.err.println("Usage: java -jar classRelation.jar <project-root-path> [--package <pkg>] [--strict]");
+            System.err.println("Usage: java -jar classRelation.jar [project-root-path] [--package <pkg>] [--strict]");
+            System.err.println("  project-root-path: Path to Java project (optional if sample.code.path configured)");
             System.err.println("  --package, -p <pkg>: Filter to show only relations involving specified package(s)");
             System.err.println("                     Supports: com.example, com.example.*, com.example.**");
             System.err.println("  --strict: Only include relations where BOTH source and target are in target packages");
+            System.err.println("\nConfiguration can also be set in classrelation.properties file");
             System.exit(1);
         }
 
@@ -105,7 +124,8 @@ public class Main {
             Path outputFile = Paths.get(projectName + suffix + ".md");
             Files.writeString(outputFile, content, StandardCharsets.UTF_8);
 
-            String htmlContent = new AntVG6HtmlRenderer().render(projectName, filteredRelations);
+            String htmlContent = new AntVG6HtmlRenderer().render(projectName, filteredRelations, 
+                    config.getMaxComponentsToRender());
             Path htmlOutputFile = Paths.get(projectName + suffix + ".html");
             Files.writeString(htmlOutputFile, htmlContent, StandardCharsets.UTF_8);
 

@@ -17,16 +17,159 @@ import java.util.*;
 public class AntVG6HtmlRenderer {
 
     public String render(String projectName, List<ClassRelation> relations) {
+        return render(projectName, relations, 0);
+    }
+
+    /**
+     * Renders class lineage relations as a standalone interactive HTML page.
+     *
+     * @param projectName project name for display
+     * @param relations class relations to render
+     * @param maxComponentsToRender maximum number of connected components to render (0 = all)
+     *                              Components are selected by edge count (most edges first)
+     */
+    public String render(String projectName, List<ClassRelation> relations, int maxComponentsToRender) {
         Set<String> nodeIds = collectNodeIds(relations);
         Map<String, Integer> componentMap = computeComponents(nodeIds, relations);
+        
+        // Filter components if maxComponentsToRender is specified
         List<Map<String, Object>> nodes = buildNodes(relations, componentMap);
         List<Map<String, Object>> edges = buildEdges(relations);
+        
+        if (maxComponentsToRender > 0) {
+            FilterResult filtered = filterTopComponents(nodes, edges, maxComponentsToRender);
+            nodes = filtered.nodes;
+            edges = filtered.edges;
+        }
+        
         return renderHtml(projectName, nodes, edges);
     }
 
     // -------------------------------------------------------------------------
     // Node construction
     // -------------------------------------------------------------------------
+
+    /**
+     * Filters nodes and edges to keep only the top N connected components by size.
+     * Component size is primarily determined by node count, with edge count as tiebreaker.
+     */
+    private FilterResult filterTopComponents(List<Map<String, Object>> nodes,
+                                              List<Map<String, Object>> edges,
+                                              int maxComponents) {
+        if (maxComponents <= 0 || nodes.isEmpty()) {
+            return new FilterResult(nodes, edges);
+        }
+
+        // Build node ID to component ID map for fast lookup
+        Map<String, Integer> nodeToComponent = new LinkedHashMap<>();
+        for (Map<String, Object> node : nodes) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> data = (Map<String, Object>) node.get("data");
+            if (data != null && data.containsKey("componentId")) {
+                nodeToComponent.put((String) node.get("id"), (Integer) data.get("componentId"));
+            }
+        }
+
+        // Count nodes per component
+        Map<Integer, Integer> nodeCountByComponent = new LinkedHashMap<>();
+        for (Integer compId : nodeToComponent.values()) {
+            nodeCountByComponent.merge(compId, 1, Integer::sum);
+        }
+
+        // Count edges per component
+        Map<Integer, Integer> edgeCountByComponent = new LinkedHashMap<>();
+        for (Map<String, Object> edge : edges) {
+            String sourceId = (String) edge.get("source");
+            Integer compId = nodeToComponent.get(sourceId);
+            if (compId != null) {
+                edgeCountByComponent.merge(compId, 1, Integer::sum);
+            }
+        }
+        
+        // Ensure all components are represented
+        Set<Integer> allComponentIds = new LinkedHashSet<>(nodeToComponent.values());
+        for (Integer compId : allComponentIds) {
+            nodeCountByComponent.computeIfAbsent(compId, k -> 0);
+            edgeCountByComponent.computeIfAbsent(compId, k -> 0);
+        }
+        
+        // Sort components by size: primary=node count, secondary=edge count (both descending)
+        List<Integer> sortedComponentIds = new ArrayList<>(allComponentIds);
+        sortedComponentIds.sort((a, b) -> {
+            int nodeCompare = Integer.compare(
+                nodeCountByComponent.getOrDefault(b, 0),
+                nodeCountByComponent.getOrDefault(a, 0)
+            );
+            if (nodeCompare != 0) return nodeCompare;
+            return Integer.compare(
+                edgeCountByComponent.getOrDefault(b, 0),
+                edgeCountByComponent.getOrDefault(a, 0)
+            );
+        });
+        
+        // Take top N components
+        Set<Integer> selectedComponentIds = new LinkedHashSet<>();
+        for (int i = 0; i < Math.min(maxComponents, sortedComponentIds.size()); i++) {
+            selectedComponentIds.add(sortedComponentIds.get(i));
+        }
+        
+        // Debug logging
+        System.out.println("\n=== Connected Component Filtering ===");
+        System.out.println("Total components: " + allComponentIds.size() + 
+                         ", Selected top: " + selectedComponentIds.size() + 
+                         " (maxComponents=" + maxComponents + ")");
+        System.out.println("Component ranking (by node count, then edge count):");
+        for (int i = 0; i < sortedComponentIds.size(); i++) {
+            Integer compId = sortedComponentIds.get(i);
+            int nodeCount = nodeCountByComponent.getOrDefault(compId, 0);
+            int edgeCount = edgeCountByComponent.getOrDefault(compId, 0);
+            String marker = selectedComponentIds.contains(compId) ? " ✓ SELECTED" : " ✗ filtered";
+            System.out.printf("  #%d Component %d: %d nodes, %d edges%s%n", 
+                            i + 1, compId, nodeCount, edgeCount, marker);
+        }
+        
+        // Filter nodes and edges
+        List<Map<String, Object>> filteredNodes = new ArrayList<>();
+        Set<String> keptNodeIds = new LinkedHashSet<>();
+        
+        for (Map<String, Object> node : nodes) {
+            Integer compId = nodeToComponent.get(node.get("id"));
+            if (compId != null && selectedComponentIds.contains(compId)) {
+                filteredNodes.add(node);
+                keptNodeIds.add((String) node.get("id"));
+            }
+        }
+        
+        List<Map<String, Object>> filteredEdges = new ArrayList<>();
+        for (Map<String, Object> edge : edges) {
+            if (keptNodeIds.contains(edge.get("source")) && 
+                keptNodeIds.contains(edge.get("target"))) {
+                filteredEdges.add(edge);
+            }
+        }
+        
+        System.out.println("\nFiltering result:");
+        System.out.println("  Nodes: " + nodes.size() + " -> " + filteredNodes.size() + 
+                         " (removed " + (nodes.size() - filteredNodes.size()) + ")");
+        System.out.println("  Edges: " + edges.size() + " -> " + filteredEdges.size() + 
+                         " (removed " + (edges.size() - filteredEdges.size()) + ")");
+        System.out.println("=================================\n");
+        
+        return new FilterResult(filteredNodes, filteredEdges);
+    }
+
+    /**
+     * Simple record-like class to hold filter results.
+     */
+    private static class FilterResult {
+        final List<Map<String, Object>> nodes;
+        final List<Map<String, Object>> edges;
+        
+        FilterResult(List<Map<String, Object>> nodes, List<Map<String, Object>> edges) {
+            this.nodes = nodes;
+            this.edges = edges;
+        }
+    }
 
     private List<Map<String, Object>> buildNodes(List<ClassRelation> relations, Map<String, Integer> componentMap) {
         Set<String> nodeIds = new LinkedHashSet<>();
