@@ -27,8 +27,8 @@ import java.util.Optional;
  *   staticFacts      — static fields of Map type (Scenario 3)
  *                      key: "ClassName#fieldName"
  *
- * All lookups are by simple class name (not FQN) to stay compatible with Spoon's
- * noClasspath mode where FQNs are sometimes unavailable.
+ * All lookups are by fully-qualified class name where available; falls back to
+ * simple name only in Spoon noClasspath mode when FQN cannot be resolved.
  */
 public final class GlobalMapRegistry {
     private static final Logger log = LoggerFactory.getLogger(GlobalMapRegistry.class);

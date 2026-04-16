@@ -6,6 +6,7 @@ import spoon.reflect.code.CtExecutableReferenceExpression;
 import spoon.reflect.code.CtInvocation;
 import spoon.reflect.code.CtVariableRead;
 import spoon.reflect.reference.CtExecutableReference;
+import spoon.reflect.reference.CtTypeReference;
 
 import java.util.Optional;
 
@@ -48,7 +49,7 @@ final class ProvenanceResolver {
         String className = null;
         try {
             if (execRef.getDeclaringType() != null)
-                className = execRef.getDeclaringType().getSimpleName();
+                className = classKey(execRef.getDeclaringType());
         } catch (Exception ignored) {}
         if (className == null) return Optional.empty();
         return Optional.of(FieldProvenance.of(className, fieldName));
@@ -76,13 +77,22 @@ final class ProvenanceResolver {
         // Primary: Spoon type system
         try {
             var type = inv.getTarget().getType();
-            if (type != null) return type.getSimpleName();
+            if (type != null) return classKey(type);
         } catch (Exception ignored) {}
 
         // Fallback: capitalize the target's text (e.g. "user" → "User")
         String text = inv.getTarget().toString();
         if (text.isEmpty()) return null;
         return Character.toUpperCase(text.charAt(0)) + text.substring(1);
+    }
+
+    private static String classKey(CtTypeReference<?> typeRef) {
+        try {
+            String qn = typeRef.getQualifiedName();
+            return (qn != null && !qn.isBlank()) ? qn : typeRef.getSimpleName();
+        } catch (Exception ignored) {
+            return typeRef.getSimpleName();
+        }
     }
 
     static boolean isGetter(String name) {

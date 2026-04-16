@@ -31,27 +31,33 @@ public class AntVG6HtmlRenderer {
     private List<Map<String, Object>> buildNodes(List<ClassRelation> relations, Map<String, Integer> componentMap) {
         Set<String> nodeIds = new LinkedHashSet<>();
         Set<String> parents = new LinkedHashSet<>();
+        Map<String, String> fqnMap = new LinkedHashMap<>();   // simpleName → FQN
 
         for (ClassRelation rel : relations) {
             if (!"__derived__".equals(rel.simpleSourceClass())) {
                 nodeIds.add(rel.simpleSourceClass());
+                fqnMap.putIfAbsent(rel.simpleSourceClass(), rel.sourceClass());
             }
             nodeIds.add(rel.simpleTargetClass());
+            fqnMap.putIfAbsent(rel.simpleTargetClass(), rel.targetClass());
             if (rel.inheritance() != null) {
                 nodeIds.add(rel.inheritance().simpleChildClass());
                 nodeIds.add(rel.inheritance().simpleParentClass());
                 parents.add(rel.inheritance().simpleParentClass());
+                fqnMap.putIfAbsent(rel.inheritance().simpleChildClass(),  rel.inheritance().childClass());
+                fqnMap.putIfAbsent(rel.inheritance().simpleParentClass(), rel.inheritance().parentClass());
             }
         }
 
         List<Map<String, Object>> nodes = new ArrayList<>();
         for (String id : nodeIds) {
             Map<String, Object> data = new LinkedHashMap<>();
-            data.put("nodeType", parents.contains(id) ? "parent" : "normal");
+            data.put("nodeType",    parents.contains(id) ? "parent" : "normal");
             data.put("componentId", componentMap.getOrDefault(id, 0));
+            data.put("fqn",         fqnMap.getOrDefault(id, id));
 
             Map<String, Object> node = new LinkedHashMap<>();
-            node.put("id", id);
+            node.put("id",   id);
             node.put("data", data);
             nodes.add(node);
         }
@@ -287,390 +293,707 @@ public class AntVG6HtmlRenderer {
     private String renderHtml(String projectName,
                                List<Map<String, Object>> nodes,
                                List<Map<String, Object>> edges) {
-        String nodesJson  = toJsonArray(nodes);
-        String edgesJson  = toJsonArray(edges);
-        String titleSafe  = htmlEscape(projectName);
-        String nodeCount  = String.valueOf(nodes.size());
-        String edgeCount  = String.valueOf(edges.size());
+        String nodesJson = toJsonArray(nodes);
+        String edgesJson = toJsonArray(edges);
+        String titleSafe = htmlEscape(projectName);
+        String nodeCount = String.valueOf(nodes.size());
+        String edgeCount = String.valueOf(edges.size());
 
-        // Placeholders: __XX__ — none of these strings appear in CSS/JS content.
         String template = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>__TITLE__ \u2014 Field Lineage Graph</title>
+  <title>__TITLE__ \u2014 Field Lineage</title>
   <script src="https://unpkg.com/@antv/g6@5.0.50/dist/g6.min.js"></script>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, sans-serif; background: #f0f2f5; }
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,sans-serif;
+           background:#0d1117; color:#c9d1d9; overflow:hidden; }
+
+    /* ── Header ── */
     #header {
-      height: 52px; background: #001529; color: #fff;
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 0 20px; user-select: none; flex-shrink: 0;
+      position:fixed; top:0; left:0; right:0; height:52px; z-index:200;
+      background:#161b22; border-bottom:1px solid #30363d;
+      display:flex; align-items:center; gap:12px; padding:0 16px;
     }
-    #header h1 { font-size: 16px; font-weight: 600; letter-spacing: 0.3px; }
-    #header .meta { font-size: 12px; color: #8c9dba; }
-    #container { width: 100vw; height: calc(100vh - 52px); }
+    #header h1 { font-size:14px; font-weight:600; color:#e6edf3; white-space:nowrap; }
+    #search-wrap {
+      flex:1; max-width:280px;
+      display:flex; align-items:center; gap:6px;
+      background:#0d1117; border:1px solid #30363d; border-radius:6px;
+      padding:0 10px; height:30px;
+    }
+    #search-wrap svg { color:#8b949e; flex-shrink:0; }
+    #search-input {
+      border:none; outline:none; background:transparent;
+      color:#c9d1d9; font-size:12px; width:100%;
+    }
+    #search-input::placeholder { color:#484f58; }
+    .hdr-btn {
+      padding:4px 10px; font-size:12px; border-radius:5px; cursor:pointer;
+      border:1px solid #30363d; background:#21262d; color:#c9d1d9;
+      transition:background 0.15s;
+    }
+    .hdr-btn:hover { background:#30363d; }
+    .hdr-btn.danger { border-color:#da3633; color:#f85149; }
+    .hdr-btn.danger:hover { background:#3d1a1a; }
+    #hdr-meta { font-size:11px; color:#484f58; white-space:nowrap; margin-left:auto; }
+
+    /* ── Canvas ── */
+    #container { position:fixed; top:52px; left:0; right:0; bottom:0; }
+
+    /* ── Explore banner ── */
+    #explore-banner {
+      display:none; position:fixed; top:60px; left:50%; transform:translateX(-50%);
+      background:#1f2937; border:1px solid #374151; border-radius:20px;
+      padding:6px 14px; font-size:12px; color:#9ca3af; z-index:300;
+      align-items:center; gap:10px; box-shadow:0 4px 12px rgba(0,0,0,0.4);
+    }
+    #explore-banner b { color:#60a5fa; }
+    #btn-exit-explore {
+      cursor:pointer; background:#374151; border:none; color:#d1d5db;
+      border-radius:4px; padding:2px 8px; font-size:11px;
+    }
+    #btn-exit-explore:hover { background:#4b5563; }
+
+    /* ── Sidebar ── */
+    #sidebar {
+      position:fixed; top:52px; right:-360px; width:340px;
+      height:calc(100vh - 52px); background:#161b22;
+      border-left:1px solid #30363d; z-index:150;
+      transition:right 0.22s ease; display:flex; flex-direction:column;
+      overflow:hidden;
+    }
+    #sidebar.open { right:0; }
+    #sidebar-head {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:12px 14px 10px; border-bottom:1px solid #21262d; flex-shrink:0;
+    }
+    #sidebar-title { font-size:12px; font-weight:600; color:#8b949e;
+                     text-transform:uppercase; letter-spacing:0.6px; }
+    #btn-close-panel {
+      cursor:pointer; background:none; border:none; color:#484f58;
+      font-size:18px; line-height:1; padding:2px 4px;
+    }
+    #btn-close-panel:hover { color:#c9d1d9; }
+    #panel-scroll { flex:1; overflow-y:auto; padding:0 0 16px; }
+    #panel-scroll::-webkit-scrollbar { width:4px; }
+    #panel-scroll::-webkit-scrollbar-track { background:#0d1117; }
+    #panel-scroll::-webkit-scrollbar-thumb { background:#30363d; border-radius:2px; }
+
+    /* Panel typography */
+    .p-node-name { font-size:18px; font-weight:700; color:#e6edf3; padding:14px 14px 2px; line-height:1.2; }
+    .p-fqn {
+      font-size:10px; font-family:monospace; color:#8b949e; padding:0 14px 4px;
+      word-break:break-all; cursor:pointer; display:flex; align-items:flex-start; gap:4px;
+    }
+    .p-fqn:hover { color:#60a5fa; }
+    .p-pkg { font-size:11px; color:#6e7681; padding:0 14px 10px; }
+    .p-stats {
+      display:flex; gap:0; margin:0 14px 12px;
+      background:#0d1117; border-radius:6px; border:1px solid #21262d;
+    }
+    .p-stat {
+      flex:1; text-align:center; padding:7px 4px;
+      font-size:11px; color:#8b949e;
+    }
+    .p-stat b { display:block; font-size:17px; color:#e6edf3; font-weight:700; }
+    .p-stat:not(:last-child) { border-right:1px solid #21262d; }
+    .p-explore-btn {
+      margin:0 14px 12px; padding:7px; text-align:center; cursor:pointer;
+      background:#1c2333; border:1px solid #388bfd30; border-radius:6px;
+      font-size:12px; color:#58a6ff; transition:background 0.15s;
+    }
+    .p-explore-btn:hover { background:#1f3050; }
+    .p-section { font-size:10px; font-weight:700; color:#484f58; letter-spacing:0.8px;
+                  text-transform:uppercase; padding:8px 14px 4px; }
+    .p-edge-item {
+      display:flex; align-items:center; gap:7px; padding:6px 14px;
+      cursor:pointer; transition:background 0.1s;
+    }
+    .p-edge-item:hover { background:#161d27; }
+    .p-etype {
+      font-size:10px; font-weight:700; padding:1px 6px; border-radius:3px;
+      flex-shrink:0; font-family:monospace;
+    }
+    .p-edge-node { font-size:12px; color:#c9d1d9; flex:1; overflow:hidden;
+                   text-overflow:ellipsis; white-space:nowrap; }
+    .p-edge-label { font-size:10px; color:#484f58; font-family:monospace;
+                    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:80px; }
+    .p-arrow { color:#484f58; font-size:11px; flex-shrink:0; }
+    .p-hint { padding:40px 14px; text-align:center; color:#484f58; font-size:13px; }
+
+    /* Edge detail panel */
+    .p-edge-detail { padding:12px 14px; }
+    .p-edge-header { font-size:13px; font-weight:600; color:#e6edf3; margin-bottom:10px; }
+    .p-edge-table { width:100%; border-collapse:collapse; font-size:11px; }
+    .p-edge-table th {
+      text-align:left; padding:5px 6px; background:#0d1117; color:#8b949e;
+      border-bottom:1px solid #21262d; font-weight:600; font-size:10px; text-transform:uppercase;
+    }
+    .p-edge-table td { padding:5px 6px; color:#c9d1d9; border-bottom:1px solid #161b22;
+                       font-family:monospace; font-size:11px; }
+    .p-edge-table tr:hover td { background:#1c2333; }
+    .p-loc { padding:2px 6px; color:#484f58; font-size:10px; }
+
+    /* Legend */
     #legend {
-      position: fixed; bottom: 20px; right: 20px; z-index: 10;
-      background: rgba(255,255,255,0.96); border-radius: 8px;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.13); padding: 12px 16px;
-      font-size: 12px; line-height: 1.9; min-width: 140px;
+      position:fixed; bottom:20px; left:20px; z-index:100;
+      background:#161b22; border:1px solid #30363d; border-radius:8px;
+      padding:10px 14px; font-size:11px; line-height:2;
     }
-    #legend h4 { font-size: 12px; font-weight: 700; margin-bottom: 6px; color: #333; text-transform: uppercase; letter-spacing: 0.5px; }
-    .legend-item { display: flex; align-items: center; gap: 8px; color: #555; }
-    .legend-line { width: 28px; height: 3px; border-radius: 2px; flex-shrink: 0; }
-    .legend-dot  { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; border: 2px solid #fff; box-shadow: 0 0 0 1.5px currentColor; }
+    #legend h4 { font-size:10px; font-weight:700; color:#484f58;
+                  text-transform:uppercase; letter-spacing:0.6px; margin-bottom:4px; }
+    .leg-row { display:flex; align-items:center; gap:8px; color:#8b949e; }
+    .leg-line { width:24px; height:2px; border-radius:1px; flex-shrink:0; }
     .g6-tooltip {
-      background: #fff; border: 1px solid #e4e8f0; border-radius: 6px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.12); padding: 10px 12px;
-      max-width: 440px; pointer-events: none; font-size: 12px;
+      background:#161b22; border:1px solid #30363d; border-radius:6px;
+      box-shadow:0 4px 16px rgba(0,0,0,0.5); padding:10px 12px;
+      max-width:420px; pointer-events:none; font-size:12px; color:#c9d1d9;
     }
   </style>
 </head>
 <body>
-  <div id="header">
-    <h1>__TITLE__ \u2014 Field Lineage Graph</h1>
-    <span class="meta">__NODE_COUNT__ nodes &nbsp;&middot;&nbsp; __EDGE_COUNT__ edges &nbsp;&middot;&nbsp; AntV G6 v5</span>
-  </div>
-  <div id="container"></div>
 
-  <div id="legend">
-    <h4>Legend</h4>
-    <div class="legend-item"><div class="legend-line" style="background:#1976d2"></div><span>READ</span></div>
-    <div class="legend-item"><div class="legend-line" style="background:#f57c00"></div><span>WRITE</span></div>
-    <div class="legend-item"><div class="legend-line" style="background:#9c27b0"></div><span>MIXED</span></div>
-    <div class="legend-item"><div class="legend-line" style="background:repeating-linear-gradient(90deg,#388e3c 0,#388e3c 5px,transparent 5px,transparent 9px)"></div><span>INHERIT</span></div>
-    <div style="margin-top:6px;border-top:1px solid #eee;padding-top:6px">
-      <div class="legend-item" style="color:#777;font-style:italic;font-size:11px">Same color = same component</div>
-      <div class="legend-item" style="margin-top:4px">
-        <div class="legend-dot" style="background:#aaa;color:#aaa;box-shadow:0 0 0 2.5px #2e8b57"></div>
-        <span>Parent class</span>
+<div id="header">
+  <h1>__TITLE__</h1>
+  <div id="search-wrap">
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+      <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398l3.85 3.85a1 1 0 0 0 1.415-1.415l-3.868-3.833zm-5.242 1.156a5 5 0 1 1 0-10 5 5 0 0 1 0 10z"/>
+    </svg>
+    <input id="search-input" placeholder="Search class\u2026" autocomplete="off">
+  </div>
+  <button class="hdr-btn" onclick="resetView()">Reset</button>
+  <button class="hdr-btn" onclick="doFitView()">Fit</button>
+  <span id="hdr-meta">__NODE_COUNT__ nodes &nbsp;&middot;&nbsp; __EDGE_COUNT__ edges</span>
+</div>
+
+<div id="container"></div>
+
+<div id="explore-banner">
+  <span>Exploring: <b id="explore-label"></b></span>
+  <button id="btn-exit-explore" onclick="exitExploreMode()">Exit \u00d7</button>
+</div>
+
+<div id="sidebar">
+  <div id="sidebar-head">
+    <span id="sidebar-title">Details</span>
+    <button id="btn-close-panel" onclick="closePanel()" title="Close">\u00d7</button>
+  </div>
+  <div id="panel-scroll">
+    <div id="panel-content"><div class="p-hint">Click a node or edge to explore</div></div>
+  </div>
+</div>
+
+<div id="legend">
+  <h4>Edge types</h4>
+  <div class="leg-row"><div class="leg-line" style="background:#1976d2"></div>READ</div>
+  <div class="leg-row"><div class="leg-line" style="background:#f57c00"></div>WRITE</div>
+  <div class="leg-row"><div class="leg-line" style="background:#9c27b0"></div>MIXED</div>
+  <div class="leg-row"><div class="leg-line" style="background:#388e3c;
+    background:repeating-linear-gradient(90deg,#388e3c 0,#388e3c 5px,transparent 5px,transparent 9px)">
+  </div>INHERIT</div>
+</div>
+
+<script>
+  const NODES = __NODES_JSON__;
+  const EDGES = __EDGES_JSON__;
+
+  // ── Index structures ────────────────────────────────────────────────────────
+  const nodeById = Object.fromEntries(NODES.map(n => [n.id, n]));
+  const edgeById = Object.fromEntries(EDGES.map(e => [e.id, e]));
+  const adjOut   = Object.fromEntries(NODES.map(n => [n.id, []]));
+  const adjIn    = Object.fromEntries(NODES.map(n => [n.id, []]));
+  EDGES.forEach(e => {
+    if (adjOut[e.source]) adjOut[e.source].push(e);
+    if (adjIn[e.target])  adjIn[e.target].push(e);
+  });
+
+  function neighborIds(nid) {
+    const s = new Set();
+    (adjOut[nid]||[]).forEach(e => s.add(e.target));
+    (adjIn[nid] ||[]).forEach(e => s.add(e.source));
+    return s;
+  }
+  function connEdgeIds(nid) {
+    const s = new Set();
+    (adjOut[nid]||[]).forEach(e => s.add(e.id));
+    (adjIn[nid] ||[]).forEach(e => s.add(e.id));
+    return s;
+  }
+
+  // ── Visual state (read by style functions) ──────────────────────────────────
+  // nodeVis[id]: '' | 'inactive' | 'selected' | 'searched' | 'ghost'
+  // edgeVis[id]: '' | 'inactive' | 'ghost'
+  const nodeVis = Object.fromEntries(NODES.map(n => [n.id, '']));
+  const edgeVis = Object.fromEntries(EDGES.map(e => [e.id, '']));
+
+  // ── Colors ──────────────────────────────────────────────────────────────────
+  const PALETTE = [
+    '#4C8EDA','#E07B39','#4BAD8C','#8E5FB9',
+    '#D4A838','#5ABBD6','#D45F4C','#5A6E8C',
+    '#2E8FBF','#B09E5E',
+  ];
+  const EDGE_COLORS = { READ:'#1976d2', WRITE:'#f57c00', MIXED:'#9c27b0', INHERIT:'#388e3c' };
+
+  // ── Layout helpers (same as before) ─────────────────────────────────────────
+  const LAYER_SEP = 160, NODE_SEP = 90, COMP_GAP = 120;
+
+  function groupByComponent(nodes, edges) {
+    const groups = {}, nodeComp = {};
+    nodes.forEach(n => {
+      const cid = String(n.data.componentId);
+      nodeComp[n.id] = cid;
+      if (!groups[cid]) groups[cid] = { nodeIds:[], edges:[] };
+      groups[cid].nodeIds.push(n.id);
+    });
+    edges.forEach(e => {
+      const cid = nodeComp[e.source];
+      if (cid && groups[cid]) groups[cid].edges.push(e);
+    });
+    return groups;
+  }
+  function assignLayers(nodeIds, edges) {
+    const inDeg={}, outAdj={}, nodeSet=new Set(nodeIds);
+    nodeIds.forEach(id => { inDeg[id]=0; outAdj[id]=[]; });
+    edges.forEach(e => {
+      if (!nodeSet.has(e.source)||!nodeSet.has(e.target)||e.source===e.target) return;
+      outAdj[e.source].push(e.target); inDeg[e.target]++;
+    });
+    const layer={}; nodeIds.forEach(id => { layer[id]=0; });
+    const queue=nodeIds.filter(id=>inDeg[id]===0); let head=0;
+    while (head<queue.length) {
+      const cur=queue[head++];
+      (outAdj[cur]||[]).forEach(next => {
+        layer[next]=Math.max(layer[next]||0,(layer[cur]||0)+1);
+        if (--inDeg[next]===0) queue.push(next);
+      });
+    }
+    return layer;
+  }
+  function orderLayer(ids, li, edges, layerMap) {
+    if (li===0||ids.length<=1) return ids;
+    const prevPos={};
+    Object.entries(layerMap).filter(([,l])=>l===li-1).forEach(([id],i)=>{ prevPos[id]=i; });
+    const bary={};
+    ids.forEach(id => {
+      const nbrs = edges
+        .filter(e=>(e.target===id&&prevPos[e.source]!==undefined)||(e.source===id&&prevPos[e.target]!==undefined))
+        .map(e=>e.source===id?prevPos[e.target]:prevPos[e.source]);
+      bary[id]=nbrs.length?nbrs.reduce((s,v)=>s+v,0)/nbrs.length:1e9;
+    });
+    return [...ids].sort((a,b)=>bary[a]-bary[b]);
+  }
+  function packComponents(groups, allLayers) {
+    const cids = Object.keys(groups).sort((a,b)=>groups[b].nodeIds.length-groups[a].nodeIds.length);
+    const offsets={}; let curY=0;
+    cids.forEach(cid => {
+      offsets[cid]={offsetX:0,offsetY:curY};
+      const byLayer={};
+      groups[cid].nodeIds.forEach(id=>{ const l=allLayers[cid][id]||0; byLayer[l]=(byLayer[l]||0)+1; });
+      curY+=(Math.max(...Object.values(byLayer),1)-1)*NODE_SEP+NODE_SEP+COMP_GAP;
+    });
+    return { offsets, orderedIds:cids };
+  }
+  function computeGridColors(orderedIds, palette) {
+    const cidx=new Array(orderedIds.length).fill(null);
+    for (let i=0;i<orderedIds.length;i++) {
+      const used=new Set();
+      if (i>0&&cidx[i-1]!=null) used.add(cidx[i-1]);
+      for (let c=0;c<palette.length;c++) { if (!used.has(c)){cidx[i]=c;break;} }
+      if (cidx[i]==null) cidx[i]=0;
+    }
+    const map={}; orderedIds.forEach((cid,i)=>{ map[cid]=cidx[i]; }); return map;
+  }
+
+  const componentIds = [...new Set(NODES.map(n=>n.data.componentId))];
+  const multiComp    = componentIds.length > 1;
+  if (multiComp) NODES.forEach(n=>{ n.combo=String(n.data.componentId); });
+  const combos = multiComp ? componentIds.map(id=>({id:String(id),data:{}})) : [];
+
+  let gridColors = null;
+  if (multiComp) {
+    const groups=groupByComponent(NODES,EDGES), allLayers={};
+    Object.keys(groups).forEach(cid=>{ allLayers[cid]=assignLayers(groups[cid].nodeIds,groups[cid].edges); });
+    const { offsets, orderedIds } = packComponents(groups, allLayers);
+    gridColors = computeGridColors(orderedIds, PALETTE);
+    orderedIds.forEach(cid => {
+      const { nodeIds, edges } = groups[cid];
+      const layerMap=allLayers[cid], { offsetX, offsetY }=offsets[cid];
+      const byLayer={};
+      nodeIds.forEach(id=>{ const l=layerMap[id]||0; if(!byLayer[l]) byLayer[l]=[]; byLayer[l].push(id); });
+      Object.keys(byLayer).sort((a,b)=>Number(a)-Number(b))
+        .forEach(l=>{ byLayer[l]=orderLayer(byLayer[l],Number(l),edges,layerMap); });
+      Object.entries(byLayer).forEach(([l,ids]) => {
+        const totalH=(ids.length-1)*NODE_SEP;
+        ids.forEach((id,i)=>{
+          const node=NODES.find(n=>n.id===id); if(!node) return;
+          node.style=node.style||{};
+          node.style.x=offsetX+Number(l)*LAYER_SEP+80;
+          node.style.y=offsetY+i*NODE_SEP-totalH/2+NODE_SEP/2;
+        });
+      });
+    });
+  }
+
+  function measureLabel(text) { return (text||'').length*9+28; }
+  function findCenterId(nodes, edges) {
+    const deg={};
+    nodes.forEach(n=>{deg[n.id]=0;});
+    edges.forEach(e=>{deg[e.source]=(deg[e.source]||0)+1;deg[e.target]=(deg[e.target]||0)+1;});
+    return nodes.reduce((best,n)=>(deg[n.id]||0)>=(deg[best.id]||0)?n:best,nodes[0]).id;
+  }
+  const focusNodeId = !multiComp && NODES.length ? findCenterId(NODES,EDGES) : undefined;
+  const layoutConfig = multiComp ? { type:'preset' } : {
+    type:'radial', focusNode:focusNodeId, unitRadius:160, linkDistance:200,
+    preventOverlap:true, nodeSize:64, nodeSpacing:24, strictRadial:false, maxPreventOverlapIteration:300,
+  };
+
+  // ── Interaction state ────────────────────────────────────────────────────────
+  let activeNode   = null;
+  let exploreMode  = false;
+  let graphInst    = null;
+
+  // ── Style helpers ────────────────────────────────────────────────────────────
+  function nodeStyleFn(model) {
+    const vis      = nodeVis[model.id] || '';
+    const ghost    = vis === 'ghost';
+    const inactive = vis === 'inactive';
+    const searched = vis === 'searched';
+    const selected = vis === 'selected';
+    const isParent = model.data && model.data.nodeType === 'parent';
+    const cid      = String((model.data && model.data.componentId) || 0);
+    const pidx     = gridColors ? (gridColors[cid] ?? 0) : (parseInt(cid)||0);
+    const baseColor = PALETTE[pidx % PALETTE.length];
+    const w        = measureLabel(model.id);
+    return {
+      size:           [w, 28],
+      radius:         10,
+      fill:           ghost || inactive ? '#1c2333' : baseColor,
+      fillOpacity:    ghost ? 0.08 : (inactive ? 0.25 : 1),
+      stroke:         selected ? '#f0b429' : (searched ? '#ff9800' : (isParent ? '#4caf50' : baseColor)),
+      lineWidth:      selected ? 2.5 : (searched ? 2.5 : (isParent ? 2 : 1.2)),
+      shadowBlur:     ghost || inactive ? 0 : (selected ? 16 : 6),
+      shadowColor:    selected ? 'rgba(240,180,41,0.4)' : 'rgba(0,0,0,0.35)',
+      cursor:         ghost ? 'default' : 'pointer',
+      labelText:      model.id,
+      labelFill:      ghost ? '#2a3545' : (inactive ? '#3d4f66' : '#e6edf3'),
+      labelFontSize:  12,
+      labelFontWeight:'600',
+      labelPlacement: 'center',
+      labelWordWrap:  false,
+    };
+  }
+
+  function edgeStyleFn(model) {
+    const vis     = edgeVis[model.id] || '';
+    const ghost   = vis === 'ghost';
+    const inactive= vis === 'inactive';
+    const type    = (model.data && model.data.edgeType) || 'READ';
+    const baseColor = EDGE_COLORS[type] || '#999';
+    const color   = ghost || inactive ? '#252d3a' : baseColor;
+    return {
+      stroke:       color,
+      opacity:      ghost ? 0.04 : (inactive ? 0.12 : 1),
+      lineWidth:    type === 'MIXED' ? 2.5 : 1.8,
+      lineDash:     type === 'INHERIT' ? [7,4] : undefined,
+      endArrow:     true,
+      endArrowFill: color,
+      endArrowSize: 9,
+      cursor:       ghost ? 'default' : 'pointer',
+      labelText:    ghost || inactive ? '' : ((model.data && model.data.shortLabel) || ''),
+      labelFontSize:10,
+      labelFill:    color,
+      labelBackgroundFill: 'rgba(13,17,23,0.9)',
+      labelBackgroundPadding:[2,5,2,5],
+      labelBackgroundRadius:3,
+      labelOffsetY: -8,
+    };
+  }
+
+  // ── State update + redraw ────────────────────────────────────────────────────
+  function applyVis() {
+    if (!graphInst) return;
+    NODES.forEach(n => graphInst.updateNodeData([{ id:n.id }]));
+    EDGES.forEach(e => graphInst.updateEdgeData([{ id:e.id }]));
+    graphInst.draw();
+  }
+
+  // ── Highlight: dim non-connected, keep node+neighbors bright ────────────────
+  function highlightNode(nid) {
+    activeNode = nid;
+    const nbrs  = neighborIds(nid);
+    const cedges = connEdgeIds(nid);
+    NODES.forEach(n => { nodeVis[n.id] = (n.id===nid) ? 'selected' : (nbrs.has(n.id) ? '' : 'inactive'); });
+    EDGES.forEach(e => { edgeVis[e.id] = cedges.has(e.id) ? '' : 'inactive'; });
+    applyVis();
+    showNodePanel(nid);
+  }
+
+  // ── Explore mode: ghost non-neighborhood elements ────────────────────────────
+  function enterExploreMode(nid) {
+    exploreMode = true;
+    activeNode  = nid;
+    const nbrs  = neighborIds(nid);
+    const vis   = new Set([nid, ...nbrs]);
+    const cedges = connEdgeIds(nid);
+    NODES.forEach(n => { nodeVis[n.id] = vis.has(n.id) ? (n.id===nid ? 'selected' : '') : 'ghost'; });
+    EDGES.forEach(e => { edgeVis[e.id] = cedges.has(e.id) ? '' : 'ghost'; });
+    applyVis();
+    document.getElementById('explore-label').textContent = nid;
+    document.getElementById('explore-banner').style.display = 'flex';
+    showNodePanel(nid);
+    setTimeout(() => graphInst && graphInst.fitView({ padding:80 }), 120);
+  }
+
+  function exitExploreMode() {
+    exploreMode = false;
+    if (activeNode) {
+      highlightNode(activeNode);
+    } else {
+      clearAll();
+    }
+    document.getElementById('explore-banner').style.display = 'none';
+  }
+
+  // ── Clear all visual state ───────────────────────────────────────────────────
+  function clearAll() {
+    activeNode = null;
+    NODES.forEach(n => { nodeVis[n.id]=''; });
+    EDGES.forEach(e => { edgeVis[e.id]=''; });
+    applyVis();
+    closePanel();
+  }
+
+  function resetView() {
+    exploreMode = false;
+    clearSearchUI();
+    clearAll();
+    document.getElementById('explore-banner').style.display = 'none';
+    setTimeout(()=>graphInst&&graphInst.fitView({padding:60}),60);
+  }
+
+  function doFitView() { graphInst && graphInst.fitView({padding:60}); }
+
+  // ── Search ───────────────────────────────────────────────────────────────────
+  function doSearch(q) {
+    const term = (q||'').trim().toLowerCase();
+    if (!term) { clearSearchUI(); return; }
+    let hitCount = 0;
+    NODES.forEach(n => {
+      const match = n.id.toLowerCase().includes(term) ||
+                    (n.data.fqn||'').toLowerCase().includes(term);
+      if (match) { nodeVis[n.id]='searched'; hitCount++; }
+      else if (nodeVis[n.id]==='searched') nodeVis[n.id]='';
+    });
+    applyVis();
+  }
+  function clearSearchUI() {
+    document.getElementById('search-input').value='';
+    const changed = NODES.some(n=>nodeVis[n.id]==='searched');
+    if (changed) { NODES.forEach(n=>{ if(nodeVis[n.id]==='searched') nodeVis[n.id]=''; }); applyVis(); }
+  }
+
+  // ── Panel: node detail ───────────────────────────────────────────────────────
+  function esc(s) {
+    return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function showNodePanel(nid) {
+    const node = nodeById[nid]; if(!node) return;
+    const fqn = node.data.fqn || nid;
+    const lastDot = fqn.lastIndexOf('.');
+    const pkg = lastDot>0 ? fqn.substring(0,lastDot) : '(default package)';
+    const outs = adjOut[nid]||[], ins = adjIn[nid]||[];
+
+    const etypeBadge = (type, label) => {
+      const c = {READ:'#1976d2',WRITE:'#f57c00',MIXED:'#9c27b0',INHERIT:'#388e3c'}[type]||'#555';
+      return `<span class="p-etype" style="background:${c}20;color:${c};border:1px solid ${c}40">${esc(label||type)}</span>`;
+    };
+
+    const edgeRow = (e, otherId, isOut) => {
+      const d = e.data||{};
+      return `<div class="p-edge-item" onclick="navigateTo('${esc(otherId)}')">
+        ${etypeBadge(d.edgeType)}
+        <span class="p-arrow">${isOut?'\u2192':'\u2190'}</span>
+        <span class="p-edge-node" title="${esc(otherId)}">${esc(otherId)}</span>
+        ${d.shortLabel?`<span class="p-edge-label" title="${esc(d.shortLabel)}">${esc(d.shortLabel)}</span>`:''}
+      </div>`;
+    };
+
+    let html = `
+      <div class="p-node-name">${esc(nid)}</div>
+      <div class="p-fqn" onclick="copyText('${esc(fqn)}')" title="Click to copy">
+        <span>${esc(fqn)}</span>
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style="flex-shrink:0;margin-top:1px">
+          <path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/>
+          <path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/>
+        </svg>
       </div>
-    </div>
-  </div>
+      <div class="p-pkg">${esc(pkg)}</div>
+      <div class="p-stats">
+        <div class="p-stat"><b>${outs.length}</b>out</div>
+        <div class="p-stat"><b>${ins.length}</b>in</div>
+        <div class="p-stat"><b>${outs.length+ins.length}</b>total</div>
+      </div>
+      <div class="p-explore-btn" onclick="enterExploreMode('${esc(nid)}')">
+        🔍 Explore neighborhood
+      </div>`;
 
-  <script>
-    const NODES = __NODES_JSON__;
-    const EDGES = __EDGES_JSON__;
-
-    // 10-color palette — hue-alternated so consecutive indices are visually distinct
-    const COMPONENT_PALETTE = [
-      '#5B8FF9', '#FF9845', '#61DDAA', '#945FB9',
-      '#F6BD16', '#6DC8EC', '#E86452', '#5D7092',
-      '#1D7DB2', '#C2B26E',
-    ];
-
-    const EDGE_COLORS = {
-      READ:    '#1976d2',
-      WRITE:   '#f57c00',
-      MIXED:   '#9c27b0',
-      INHERIT: '#388e3c',
-    };
-
-                    // node type is declared at graph-config level (more reliable than per-node data)
-                
-    // Build combo structure when multiple components exist
-    const componentIds = [...new Set(NODES.map(n => n.data.componentId))];
-    const multiComponent = componentIds.length > 1;
-    if (multiComponent) {
-      NODES.forEach(n => { n.combo = String(n.data.componentId); });
+    if (outs.length>0) {
+      html += `<div class="p-section">Outgoing (${outs.length})</div>`;
+      outs.forEach(e => { html += edgeRow(e, e.target, true); });
     }
-    const combos = multiComponent
-      ? componentIds.map(id => ({ id: String(id), data: {} }))
-      : [];
-
-    // ── Pre-render layout engine (pure JS, no dependency on G6 layout) ───────
-                    const LAYER_SEP = 160;   // px — horizontal gap between layers  (LR direction)
-                    const NODE_SEP  =  90;   // px — vertical gap between nodes in the same layer
-                    const COMP_GAP  = 120;   // px — vertical gap between components
-
-    /** Partition nodes and edges by componentId. */
-    function groupByComponent(nodes, edges) {
-      const groups   = {};
-      const nodeComp = {};
-      nodes.forEach(n => {
-        const cid = String(n.data.componentId);
-        nodeComp[n.id] = cid;
-        if (!groups[cid]) groups[cid] = { nodeIds: [], edges: [] };
-        groups[cid].nodeIds.push(n.id);
-      });
-      edges.forEach(e => {
-        const cid = nodeComp[e.source];
-        if (cid && groups[cid]) groups[cid].edges.push(e);
-      });
-      return groups;
+    if (ins.length>0) {
+      html += `<div class="p-section">Incoming (${ins.length})</div>`;
+      ins.forEach(e => { html += edgeRow(e, e.source, false); });
     }
 
-    /**
-     * Assign a 0-based layer index to each node using Kahn's topological sort
-     * with longest-path assignment. Cycle nodes default to layer 0.
-     */
-    function assignLayers(nodeIds, edges) {
-      const inDeg  = {};
-      const outAdj = {};
-      const nodeSet = new Set(nodeIds);
-      nodeIds.forEach(id => { inDeg[id] = 0; outAdj[id] = []; });
-      edges.forEach(e => {
-        if (!nodeSet.has(e.source) || !nodeSet.has(e.target) || e.source === e.target) return;
-        outAdj[e.source].push(e.target);
-        inDeg[e.target]++;
+    document.getElementById('panel-content').innerHTML = html;
+    document.getElementById('sidebar-title').textContent = 'Node';
+    document.getElementById('sidebar').classList.add('open');
+  }
+
+  // ── Panel: edge detail ───────────────────────────────────────────────────────
+  function showEdgePanel(eid) {
+    const edge = edgeById[eid]; if(!edge) return;
+    const d = edge.data||{};
+    let html = `<div class="p-edge-detail">
+      <div class="p-edge-header">${esc(edge.source)} \u2192 ${esc(edge.target)}</div>`;
+    if (d.tooltipHtml) {
+      html += `<div style="font-size:11px;color:#8b949e">${d.tooltipHtml}</div>`;
+    }
+    html += '</div>';
+    document.getElementById('panel-content').innerHTML = html;
+    document.getElementById('sidebar-title').textContent = 'Edge';
+    document.getElementById('sidebar').classList.add('open');
+  }
+
+  function closePanel() {
+    document.getElementById('sidebar').classList.remove('open');
+    if (!exploreMode) { NODES.forEach(n=>{if(nodeVis[n.id]==='selected')nodeVis[n.id]='';});applyVis(); }
+    activeNode = exploreMode ? activeNode : null;
+  }
+
+  function navigateTo(nid) {
+    if (exploreMode) exitExploreMode();
+    highlightNode(nid);
+  }
+
+  function copyText(text) {
+    navigator.clipboard && navigator.clipboard.writeText(text)
+      .then(()=>showToast('Copied!'))
+      .catch(()=>{});
+  }
+
+  function showToast(msg) {
+    let t = document.getElementById('_toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = '_toast';
+      Object.assign(t.style, {
+        position:'fixed',bottom:'80px',left:'50%',transform:'translateX(-50%)',
+        background:'#238636',color:'#fff',padding:'6px 16px',borderRadius:'6px',
+        fontSize:'12px',zIndex:'500',pointerEvents:'none',transition:'opacity 0.3s',
       });
-      const layer = {};
-      nodeIds.forEach(id => { layer[id] = 0; });
-      const queue = nodeIds.filter(id => inDeg[id] === 0);
-      let head = 0;
-      while (head < queue.length) {
-        const cur = queue[head++];
-        (outAdj[cur] || []).forEach(next => {
-          layer[next] = Math.max(layer[next] || 0, (layer[cur] || 0) + 1);
-          if (--inDeg[next] === 0) queue.push(next);
-        });
+      document.body.appendChild(t);
+    }
+    t.textContent = msg; t.style.opacity = '1';
+    clearTimeout(t._timer);
+    t._timer = setTimeout(()=>{ t.style.opacity='0'; }, 1500);
+  }
+
+  // ── Bootstrap G6 ─────────────────────────────────────────────────────────────
+  (async () => {
+    graphInst = new G6.Graph({
+      container: 'container',
+      data: { nodes: NODES, edges: EDGES, combos },
+      layout: layoutConfig,
+      node: { type:'rect', style: nodeStyleFn },
+      edge: { style: edgeStyleFn },
+      combo: {
+        style: (model) => {
+          const pidx = gridColors ? (gridColors[model.id]??0) : 0;
+          const color = PALETTE[pidx % PALETTE.length];
+          return { fill:color, fillOpacity:0.06, stroke:color, strokeOpacity:0.35,
+                   lineWidth:1.5, radius:14, lineDash:[5,3], labelText:'' };
+        },
+      },
+      behaviors: ['zoom-canvas','drag-canvas','drag-element'],
+      plugins: [{
+        type: 'tooltip',
+        getContent: (_evt, items) => {
+          if (!items||!items.length) return '';
+          const item = items[0];
+          if (item.data && item.data.tooltipHtml)
+            return '<div class="g6-tooltip">' + item.data.tooltipHtml + '</div>';
+          const fqn = item.data && item.data.fqn ? item.data.fqn : item.id;
+          return `<div class="g6-tooltip"><b style="color:#e6edf3">${esc(item.id)}</b>` +
+                 (fqn !== item.id ? `<div style="color:#8b949e;font-size:10px;font-family:monospace;margin-top:3px">${esc(fqn)}</div>` : '') +
+                 '</div>';
+        },
+      }],
+    });
+
+    await graphInst.render();
+
+    // ── Events ────────────────────────────────────────────────────────────────
+    graphInst.on('node:click', (evt) => {
+      const nid = evt.itemId || (evt.target && evt.target.id);
+      if (nid && nodeById[nid]) {
+        if (exploreMode) { exitExploreMode(); setTimeout(()=>highlightNode(nid),50); }
+        else highlightNode(nid);
       }
-      return layer;
+    });
+
+    graphInst.on('node:dblclick', (evt) => {
+      const nid = evt.itemId || (evt.target && evt.target.id);
+      if (nid && nodeById[nid]) enterExploreMode(nid);
+    });
+
+    graphInst.on('edge:click', (evt) => {
+      const eid = evt.itemId || (evt.target && evt.target.id);
+      if (eid && edgeById[eid]) showEdgePanel(eid);
+    });
+
+    graphInst.on('canvas:click', () => {
+      if (!exploreMode) clearAll();
+      clearSearchUI();
+    });
+
+    setTimeout(()=>graphInst.fitView({padding:60}), 200);
+  })();
+
+  // ── Search input ─────────────────────────────────────────────────────────────
+  document.getElementById('search-input').addEventListener('input', e => doSearch(e.target.value));
+  document.getElementById('search-input').addEventListener('keydown', e => {
+    if (e.key==='Escape') { clearSearchUI(); e.target.blur(); }
+  });
+
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────────
+  document.addEventListener('keydown', e => {
+    if (e.key==='Escape') {
+      if (exploreMode) { exitExploreMode(); return; }
+      if (document.getElementById('sidebar').classList.contains('open')) { closePanel(); return; }
+      clearAll();
     }
-
-    /**
-     * Barycenter heuristic: re-order nodes in a layer to minimise edge crossings
-     * with the previous layer.
-     */
-    function orderLayer(layerNodeIds, layerIndex, edges, layerMap) {
-      if (layerIndex === 0 || layerNodeIds.length <= 1) return layerNodeIds;
-      const prevPos = {};
-      let pos = 0;
-      Object.entries(layerMap)
-        .filter(([, l]) => l === layerIndex - 1)
-        .forEach(([id]) => { prevPos[id] = pos++; });
-      const bary = {};
-      layerNodeIds.forEach(id => {
-        const nbrs = edges
-          .filter(e => (e.target === id && prevPos[e.source] !== undefined) ||
-                       (e.source === id && prevPos[e.target] !== undefined))
-          .map(e => e.source === id ? prevPos[e.target] : prevPos[e.source]);
-        bary[id] = nbrs.length ? nbrs.reduce((s, v) => s + v, 0) / nbrs.length : 1e9;
-      });
-      return [...layerNodeIds].sort((a, b) => bary[a] - bary[b]);
+    if ((e.ctrlKey||e.metaKey) && e.key==='f') {
+      e.preventDefault(); document.getElementById('search-input').focus();
     }
-
-    /**
-                     * Pack components top-to-bottom (LR layout: tallest first).
-                     * Returns { offsetX, offsetY } per component and the sorted component order.
-     */
-    function packComponents(groups, allLayers) {
-      const cids = Object.keys(groups)
-        .sort((a, b) => groups[b].nodeIds.length - groups[a].nodeIds.length);
-      const offsets = {};
-                      let curY = 0;
-      cids.forEach(cid => {
-                        offsets[cid] = { offsetX: 0, offsetY: curY };
-        const byLayer = {};
-        groups[cid].nodeIds.forEach(id => {
-          const l = allLayers[cid][id] || 0;
-          byLayer[l] = (byLayer[l] || 0) + 1;
-        });
-        const maxCount = Math.max(...Object.values(byLayer), 1);
-                        curY += (maxCount - 1) * NODE_SEP + NODE_SEP + COMP_GAP;
-      });
-      return { offsets, orderedIds: cids };
-    }
-
-    /**
-                     * Greedy coloring: components are stacked top-to-bottom, so only the immediate
-                     * upper neighbour needs a different colour.
-     */
-    function computeGridColors(orderedIds, palette) {
-      const cidx = new Array(orderedIds.length).fill(null);
-      for (let i = 0; i < orderedIds.length; i++) {
-        const used = new Set();
-        if (i > 0 && cidx[i - 1] != null) used.add(cidx[i - 1]);
-        for (let c = 0; c < palette.length; c++) {
-          if (!used.has(c)) { cidx[i] = c; break; }
-        }
-        if (cidx[i] == null) cidx[i] = 0;
-      }
-      const map = {};
-      orderedIds.forEach((cid, i) => { map[cid] = cidx[i]; });
-      return map;
-    }
-
-    // ── Orchestrate ──────────────────────────────────────────────────────────
-    let gridColors = null;
-
-    if (multiComponent) {
-      const groups    = groupByComponent(NODES, EDGES);
-      const allLayers = {};
-      Object.keys(groups).forEach(cid => {
-        allLayers[cid] = assignLayers(groups[cid].nodeIds, groups[cid].edges);
-      });
-
-      const { offsets, orderedIds } = packComponents(groups, allLayers);
-      gridColors = computeGridColors(orderedIds, COMPONENT_PALETTE);
-
-      orderedIds.forEach(cid => {
-        const { nodeIds, edges } = groups[cid];
-                        const layerMap             = allLayers[cid];
-                        const { offsetX, offsetY } = offsets[cid];
-
-        // Bucket nodes by layer, then apply barycenter ordering
-        const byLayer = {};
-        nodeIds.forEach(id => {
-          const l = layerMap[id] || 0;
-          if (!byLayer[l]) byLayer[l] = [];
-          byLayer[l].push(id);
-        });
-        Object.keys(byLayer)
-          .sort((a, b) => Number(a) - Number(b))
-          .forEach(l => { byLayer[l] = orderLayer(byLayer[l], Number(l), edges, layerMap); });
-
-                        // LR layout: layer depth → x axis,  position within layer → y axis
-        Object.entries(byLayer).forEach(([l, ids]) => {
-                          const totalH = (ids.length - 1) * NODE_SEP;
-          ids.forEach((id, i) => {
-            const node = NODES.find(n => n.id === id);
-            if (!node) return;
-            node.style   = node.style || {};
-                            node.style.x = offsetX + Number(l) * LAYER_SEP + 80;
-                            node.style.y = offsetY + i * NODE_SEP - totalH / 2 + NODE_SEP / 2;
-          });
-        });
-      });
-    }
-    // ────────────────────────────────────────────────────────────────────────
-
-                    // Node width: 9px per character (conservative for bold sans-serif) + 24px padding
-                    function measureLabel(text) {
-                      return (text || '').length * 9 + 24;
-                    }
-                
-    // Radial centre (single-component only)
-    function findCenterId(nodes, edges) {
-      const deg = {};
-      nodes.forEach(n => { deg[n.id] = 0; });
-      edges.forEach(e => { deg[e.source] = (deg[e.source]||0)+1; deg[e.target] = (deg[e.target]||0)+1; });
-      return nodes.reduce((best, n) => (deg[n.id]||0) >= (deg[best.id]||0) ? n : best, nodes[0]).id;
-    }
-    const focusNodeId = !multiComponent && NODES.length ? findCenterId(NODES, EDGES) : undefined;
-
-    // preset: use pre-computed x/y; radial: single fully-connected component
-    const layoutConfig = multiComponent ? { type: 'preset' } : {
-      type: 'radial',
-      focusNode: focusNodeId,
-      unitRadius: 160,
-      linkDistance: 200,
-      preventOverlap: true,
-      nodeSize: 64,
-      nodeSpacing: 24,
-      strictRadial: false,
-      maxPreventOverlapIteration: 300,
-    };
-
-    (async () => {
-      const graph = new G6.Graph({
-        container: 'container',
-        data: { nodes: NODES, edges: EDGES, combos },
-        layout: layoutConfig,
-        node: {
-                          type: 'rect',
-          style: (model) => {
-            const isParent   = model.data && model.data.nodeType === 'parent';
-            const cid        = String((model.data && model.data.componentId) || 0);
-            const paletteIdx = gridColors ? (gridColors[cid] ?? 0) : (parseInt(cid) || 0);
-            const fill       = COMPONENT_PALETTE[paletteIdx % COMPONENT_PALETTE.length];
-                            const w          = measureLabel(model.id);
-            return {
-                              size:      [w, 24],
-                              radius:    8,
-              fill,
-              stroke:    isParent ? '#2e8b57' : fill,
-                              lineWidth: isParent ? 3 : 1.5,
-                              shadowBlur: 8,
-                              shadowColor: 'rgba(0,0,0,0.12)',
-              cursor: 'pointer',
-                              labelText:       model.id,
-                              labelFill:       '#fff',
-                              labelFontSize:   12,
-              labelFontWeight: '600',
-                              labelPlacement:  'center',
-                              labelOffsetY:    0,
-                              labelWordWrap:   false,
-            };
-          },
-        },
-        edge: {
-          style: (model) => {
-            const type     = (model.data && model.data.edgeType) || 'READ';
-            const color    = EDGE_COLORS[type] || '#999';
-            const isDashed = type === 'INHERIT';
-            return {
-              stroke: color,
-              lineWidth: type === 'MIXED' ? 2.5 : 1.8,
-              lineDash: isDashed ? [7, 4] : undefined,
-              endArrow: true,
-              endArrowFill: color,
-              endArrowSize: 9,
-              cursor: 'pointer',
-              labelText: (model.data && model.data.shortLabel) || '',
-              labelFontSize: 10,
-              labelFill: color,
-              labelBackgroundFill: 'rgba(255,255,255,0.88)',
-              labelBackgroundPadding: [2, 5, 2, 5],
-              labelBackgroundRadius: 3,
-              labelOffsetY: -8,
-            };
-          },
-        },
-        combo: {
-          style: (model) => {
-            const paletteIdx = gridColors ? (gridColors[model.id] ?? 0) : 0;
-            const color      = COMPONENT_PALETTE[paletteIdx % COMPONENT_PALETTE.length];
-            return {
-              fill:          color,
-              fillOpacity:   0.08,
-              stroke:        color,
-              strokeOpacity: 0.5,
-              lineWidth:     2,
-              radius:        16,
-              lineDash:      [6, 3],
-              labelText:     '',
-            };
-          },
-        },
-        behaviors: [
-          'zoom-canvas',
-          'drag-canvas',
-          'drag-element',
-          { type: 'click-select', multiple: false },
-        ],
-        plugins: [
-          {
-            type: 'tooltip',
-            getContent: function(_evt, items) {
-              if (!items || items.length === 0) return '';
-              const item = items[0];
-              const html = item.data && item.data.tooltipHtml;
-              if (html) return '<div class="g6-tooltip">' + html + '</div>';
-              return '<div class="g6-tooltip"><b>' + item.id + '</b></div>';
-            },
-          },
-        ],
-      });
-
-      await graph.render();
-      setTimeout(function() { graph.fitView({ padding: 60 }); }, 200);
-    })();
-  </script>
+  });
+</script>
 </body>
 </html>
 """;
 
         return template
-                .replace("__TITLE__",       titleSafe)
-                .replace("__NODE_COUNT__",  nodeCount)
-                .replace("__EDGE_COUNT__",  edgeCount)
-                .replace("__NODES_JSON__",  nodesJson)
-                .replace("__EDGES_JSON__",  edgesJson);
+                .replace("__TITLE__",      titleSafe)
+                .replace("__NODE_COUNT__", nodeCount)
+                .replace("__EDGE_COUNT__", edgeCount)
+                .replace("__NODES_JSON__", nodesJson)
+                .replace("__EDGES_JSON__", edgesJson);
     }
 
     // -------------------------------------------------------------------------

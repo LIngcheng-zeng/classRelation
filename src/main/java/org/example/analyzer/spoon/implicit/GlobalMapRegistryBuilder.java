@@ -54,7 +54,7 @@ public final class GlobalMapRegistryBuilder {
         GlobalMapRegistry registry = new GlobalMapRegistry();
 
         for (CtType<?> type : model.getAllTypes()) {
-            String className = type.getSimpleName();
+            String className = classKey(type);
             // Pass 1: field initialisers + assignments to Map fields in method bodies
             scanFields(type, className, registry);
             scanMethodsForFieldFacts(type, className, registry);
@@ -279,6 +279,15 @@ public final class GlobalMapRegistryBuilder {
             current = current.getTarget() instanceof spoon.reflect.code.CtInvocation<?> t ? t : null;
         }
         return Optional.empty();
+    }
+
+    private static String classKey(CtType<?> type) {
+        try {
+            String qn = type.getQualifiedName();
+            return (qn != null && !qn.isBlank()) ? qn : type.getSimpleName();
+        } catch (Exception ignored) {
+            return type.getSimpleName();
+        }
     }
 
     private boolean isMapType(CtTypeReference<?> typeRef) {

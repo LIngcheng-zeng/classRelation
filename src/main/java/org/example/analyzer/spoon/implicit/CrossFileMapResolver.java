@@ -87,7 +87,7 @@ public final class CrossFileMapResolver {
         try {
             CtTypeReference<?> declaringType = fr.getVariable().getDeclaringType();
             if (declaringType == null) return Optional.empty();
-            String className = declaringType.getSimpleName();
+            String className = classKey(declaringType);
             String fieldName = fr.getVariable().getSimpleName();
             return registry.lookupStatic(className, fieldName);
         } catch (Exception e) {
@@ -101,7 +101,7 @@ public final class CrossFileMapResolver {
         try {
             CtTypeReference<?> declaringType = fr.getVariable().getDeclaringType();
             if (declaringType == null) return Optional.empty();
-            String className = declaringType.getSimpleName();
+            String className = classKey(declaringType);
             String fieldName = fr.getVariable().getQualifiedName();
             return registry.lookupField(className, fieldName);
         } catch (Exception e) {
@@ -155,7 +155,7 @@ public final class CrossFileMapResolver {
             CtTypeReference<?> declaringType = inv.getExecutable().getDeclaringType();
             if (declaringType != null) {
                 Optional<MapFact> hit = registry.lookupMethodReturn(
-                        declaringType.getSimpleName(), methodName);
+                        classKey(declaringType), methodName);
                 if (hit.isPresent()) return hit;
             }
 
@@ -163,7 +163,7 @@ public final class CrossFileMapResolver {
             if (inv.getTarget() != null) {
                 CtTypeReference<?> receiverType = inv.getTarget().getType();
                 if (receiverType != null) {
-                    return registry.lookupMethodReturn(receiverType.getSimpleName(), methodName);
+                    return registry.lookupMethodReturn(classKey(receiverType), methodName);
                 }
             }
         } catch (Exception ignored) {}
@@ -188,6 +188,15 @@ public final class CrossFileMapResolver {
             return fr.getTarget() instanceof CtTypeAccess<?>;
         } catch (Exception ignored) {}
         return false;
+    }
+
+    private static String classKey(CtTypeReference<?> typeRef) {
+        try {
+            String qn = typeRef.getQualifiedName();
+            return (qn != null && !qn.isBlank()) ? qn : typeRef.getSimpleName();
+        } catch (Exception ignored) {
+            return typeRef.getSimpleName();
+        }
     }
 
     private boolean isMapType(CtTypeReference<?> typeRef) {
