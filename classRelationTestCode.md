@@ -4,9 +4,9 @@
 
 | 项目 | 数值 |
 |---|---|
-| 涉及类关系对（直接） | 21 |
+| 涉及类关系对（直接） | 24 |
 | 探测型关联（READ） | 13 |
-| 动作型关联（WRITE） | 32 |
+| 动作型关联（WRITE） | 54 |
 | 推导关联（传递闭包） | 1 |
 
 ## 关联图谱
@@ -52,6 +52,17 @@ flowchart LR
     linkStyle default stroke:#999,stroke-width:1px
     GetModel1 -->|"PD: GetModel1.key ≡ GetModel2.key"| GetModel2:::readRel
     GetModel1 -->|"AE: GetModel1.key2 ≡ GetModel2.key2"| GetModel2:::readRel
+    GetModel1 -.->|"AE: GetModel1.key ≡ MutiModel.key1N"| MutiModel:::writeRel
+    GetModel1 -.->|"AE: GetModel1.key2 ≡ MutiModel.key1N"| MutiModel:::writeRel
+    GetModel1 -.->|"AE: GetModel1.key3 ≡ MutiModel.key1N"| MutiModel:::writeRel
+    GetModel1 -.->|"AE: GetModel1.key2 ≡ MutiModel.key2N"| MutiModel:::writeRel
+    GetModel1 -.->|"AE: GetModel1.key3 ≡ MutiModel.key3N"| MutiModel:::writeRel
+    GetModel2 -.->|"AE: GetModel2.key ≡ MutiModel.key1N"| MutiModel:::writeRel
+    GetModel2 -.->|"AE: GetModel2.key2 ≡ MutiModel.key2N"| MutiModel:::writeRel
+    GetModel2 -.->|"AE: GetModel2.key3 ≡ MutiModel.key3N"| MutiModel:::writeRel
+    GetModel3 -.->|"AE: GetModel3.key1 ≡ MutiModel.key1N"| MutiModel:::writeRel
+    GetModel3 -.->|"AE: GetModel3.key2 ≡ MutiModel.key2N"| MutiModel:::writeRel
+    GetModel3 -.->|"AE: GetModel3.key3 ≡ MutiModel.key3N"| MutiModel:::writeRel
     classDef readRel stroke:#1976d2,stroke-width:3px,color:#1976d2
     classDef writeRel stroke:#f57c00,stroke-width:3px,color:#f57c00
     classDef inheritRel stroke:#388e3c,stroke-width:3px,color:#388e3c
@@ -129,133 +140,125 @@ flowchart LR
 
 ## 字段血缘明细
 
-### Employee
+### Account
 
-| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
-|---|---|---|---|---|---|
-| `lastName` | `User.name` | ATOMIC | WRITE | `RecursiveCallTest.java:28` |
-| | *employee.setLastName(user.getName())* | | | |
-
-### Order
-
-| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
-|---|---|---|---|---|---|
-| `phone, userId` | `User.id`, `User.phone` | COMPOSITE | READ | `CompositeProjectionTest.java:21` |
-| | *userAndPhone.equals(orderAndPhone)* | | | |
-
-### Invoice
-
-| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
-|---|---|---|---|---|---|
-| `buyerId` | `User.id` | PARAMETERIZED | WRITE | `fillInvoice(projected)` |
-| | *// 这里建立映射：userId -> invoice.buyerId, orderId -> invoice.refOrderId invoice.setBuyerId(userId)* | | | |
-| `refOrderId` | `Order.orderId` | ATOMIC | READ | `AtomicEqualityTest.java:19` |
-| | *order.getOrderId().equals(invoice.getRefOrderId())* | | | |
-
-### Catalog
-
-| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
-|---|---|---|---|---|---|
-| `catalogCode` | `Goods.catalogRef` | ATOMIC | READ | `ImplicitEqualityTest.java:80` |
-| | *g.getCatalogRef().equals(catalog.getCatalogCode())* | | | |
-
-### User
-
-| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
-|---|---|---|---|---|---|
-| `areaCode` | `Address.zip` | PARAMETERIZED | READ | `NormalizationTest.java:16` | `toLowerCase()` |
-| | *address.getZip().toLowerCase().equals(user.getAreaCode())* | | | |
-
-### GetModel2
-
-| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
-|---|---|---|---|---|---|
-| `key` | `GetModel1.key` | PARAMETERIZED | READ | `GetTest.java:19` |
-| | *model1s.get(0).getKey().equals(model2s.get(0).getKey())* | | | |
-| `key2` | `GetModel1.key2` | ATOMIC | READ | `GetTest.java:23` |
-| | *model1s1[0].getKey2().equals(model1s2[0].getKey2())* | | | |
-
-### PersonSummaryDTO
-
-| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
-|---|---|---|---|---|---|
-| `displayName` | `User.name` | ATOMIC | WRITE | `MultiSourceMappingTest.java:20` |
-| | *dto.setDisplayName(user.getName())* | | | |
-|  | `Employee.fullName` | ATOMIC | WRITE | `MultiSourceMappingTest.java:28` |
-| | *dto.setDisplayName(emp.getFullName())* | | | |
-| `mobile` | `User.phone` | ATOMIC | WRITE | `MultiSourceMappingTest.java:21` |
-| | *dto.setMobile(user.getPhone())* | | | |
-|  | `Employee.departmentCode` | ATOMIC | WRITE | `MultiSourceMappingTest.java:29` |
-| | *dto.setMobile(emp.getDepartmentCode())* | | | |
-| `orgCode` | `User.tenantId` | ATOMIC | WRITE | `MultiSourceMappingTest.java:22` |
-| | *dto.setOrgCode(user.getTenantId())* | | | |
-|  | `Employee.employeeNo` | ATOMIC | WRITE | `MultiSourceMappingTest.java:30` |
-| | *dto.setOrgCode(emp.getEmployeeNo())* | | | |
+| 目标字段 | 源端字段 | 代码位置 | 代码块 |
+|---|---|---|---|
+| `fullMobile` | `User.phone` | `createAccountFromUser(constructor-call)` | new Account(userOrderDTO.getUser().getPhone(), userOrderDTO.getUser().getId()) |
+| `userId` | `User.id` | `createAccountFromUser(constructor-call)` | new Account(userOrderDTO.getUser().getPhone(), userOrderDTO.getUser().getId()) |
 
 ### Address
 
-| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
-|---|---|---|---|---|---|
-| `city` | `Order.city` | PARAMETERIZED | WRITE | `buildAddressFromOrder(builder)` |
-| | *Address.builder().city(orderDTO.getOrder().getCity())* | | | |
-
-### Account
-
-| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
-|---|---|---|---|---|---|
-| `fullMobile` | `User.phone` | PARAMETERIZED | WRITE | `createAccountFromUser(constructor-call)` |
-| | *new Account(userOrderDTO.getUser().getPhone(), userOrderDTO.getUser().getId())* | | | |
-| `userId` | `User.id` | PARAMETERIZED | WRITE | `createAccountFromUser(constructor-call)` |
-| | *new Account(userOrderDTO.getUser().getPhone(), userOrderDTO.getUser().getId())* | | | |
-
-### ItemDetail
-
-| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
-|---|---|---|---|---|---|
-| `item` | `Item.item` | PARAMETERIZED | WRITE | `testGeneric(builder)` |
-| | *ItemDetail.builder().item(item)* | | | |
+| 目标字段 | 源端字段 | 代码位置 | 代码块 |
+|---|---|---|---|
+| `city` | `Order.city` | `buildAddressFromOrder(builder)` | Address.builder().city(orderDTO.getOrder().getCity()) |
 
 ### Bottom
 
-| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
-|---|---|---|---|---|---|
-| `manufacturer` | `Enterprise.name` | MAP_JOIN | READ | `testGeneric(implicit-map-join)` |
-| | *nameMapProduct.forEach((name, product) -> {     productMapImg.put(product, nameMapImg.get(name)); })* | | | |
+| 目标字段 | 源端字段 | 代码位置 | 代码块 |
+|---|---|---|---|
+| `manufacturer` | `Enterprise.name` | `testGeneric(implicit-map-join)` | nameMapProduct.forEach((name, product) -> {     productMapImg.put(product, nameMapImg.get(name)); }) |
 
-### Supplier
+### Catalog
 
-| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
-|---|---|---|---|---|---|
-| `supplierCode` | `PurchaseOrder.supplierRef` | MAP_JOIN | READ | `testDirectGetterBridge(implicit-map-join)` |
-| | *supplierRegionMap.get(purchaseOrder.getSupplierRef())* | | | |
-
-### Product
-
-| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
-|---|---|---|---|---|---|
-| `productCode` | `OrderLine.productRef` | MAP_JOIN | READ | `testExplicitPutGet(implicit-map-join)` |
-| | *productNameMap.get(orderLine.getProductRef())* | | | |
+| 目标字段 | 源端字段 | 代码位置 | 代码块 |
+|---|---|---|---|
+| `catalogCode` | `Goods.catalogRef` | `ImplicitEqualityTest.java:80` | g.getCatalogRef().equals(catalog.getCatalogCode()) |
 
 ### Contract
 
-| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
-|---|---|---|---|---|---|
-| `contractNo` | `Payment.refContractNo` | MAP_JOIN | READ | `testGetterAssignmentBridge(implicit-map-join)` |
-| | *contractClientMap.get(lookupKey)* | | | |
+| 目标字段 | 源端字段 | 代码位置 | 代码块 |
+|---|---|---|---|
+| `contractNo` | `Payment.refContractNo` | `testGetterAssignmentBridge(implicit-map-join)` | contractClientMap.get(lookupKey) |
+
+### Employee
+
+| 目标字段 | 源端字段 | 代码位置 | 代码块 |
+|---|---|---|---|
+| `lastName` | `User.name` | `RecursiveCallTest.java:28` | employee.setLastName(user.getName()) |
+
+### GetModel2
+
+| 目标字段 | 源端字段 | 代码位置 | 代码块 |
+|---|---|---|---|
+| `key` | `GetModel1.key` | `GetTest.java:19` | model1s.get(0).getKey().equals(model2s.get(0).getKey()) |
+| `key2` | `GetModel1.key2` | `GetTest.java:23` | model1s1[0].getKey2().equals(model1s2[0].getKey2()) |
+
+### Invoice
+
+| 目标字段 | 源端字段 | 代码位置 | 代码块 |
+|---|---|---|---|
+| `buyerId` | `User.id` | `fillInvoice(projected)` | // 这里建立映射：userId -> invoice.buyerId, orderId -> invoice.refOrderId invoice.setBuyerId(userId) |
+| `refOrderId` | `Order.orderId` | `AtomicEqualityTest.java:19` | order.getOrderId().equals(invoice.getRefOrderId()) |
+
+### ItemDetail
+
+| 目标字段 | 源端字段 | 代码位置 | 代码块 |
+|---|---|---|---|
+| `item` | `Item.item` | `testGeneric(builder)` | ItemDetail.builder().item(item) |
+
+### MutiModel
+
+| 目标字段 | 源端字段 | 代码位置 | 代码块 |
+|---|---|---|---|
+| `key1N` | `GetModel1.key` | `MutiTest.java:26` | mutiModel.setKey1N(getModel1.getKey()) |
+|  | `GetModel1.key2` | `MutiTest.java:27` | mutiModel.setKey1N(getModel1.getKey2()) |
+|  | `GetModel1.key3` | `MutiTest.java:28` | mutiModel.setKey1N(getModel1.getKey3()) |
+|  | `GetModel2.key` | `MutiTest.java:29` | mutiModel.setKey1N(getModel2.getKey()) |
+|  | `GetModel3.key1` | `MutiTest.java:30` | mutiModel.setKey1N(getModel3.getKey1()) |
+| `key2N` | `GetModel1.key2` | `MutiTest.java:32` | mutiModel.setKey2N(getModel1.getKey2()) |
+|  | `GetModel2.key2` | `MutiTest.java:33` | mutiModel.setKey2N(getModel2.getKey2()) |
+|  | `GetModel3.key2` | `MutiTest.java:34` | mutiModel.setKey2N(getModel3.getKey2()) |
+| `key3N` | `GetModel1.key3` | `MutiTest.java:36` | mutiModel.setKey3N(getModel1.getKey3()) |
+|  | `GetModel2.key3` | `MutiTest.java:37` | mutiModel.setKey3N(getModel2.getKey3()) |
+|  | `GetModel3.key3` | `MutiTest.java:38` | mutiModel.setKey3N(getModel3.getKey3()) |
+
+### Order
+
+| 目标字段 | 源端字段 | 代码位置 | 代码块 |
+|---|---|---|---|
+| `phone, userId` | `User.id`, `User.phone` | `CompositeProjectionTest.java:21` | userAndPhone.equals(orderAndPhone) |
+
+### PersonSummaryDTO
+
+| 目标字段 | 源端字段 | 代码位置 | 代码块 |
+|---|---|---|---|
+| `displayName` | `Employee.fullName` | `MultiSourceMappingTest.java:28` | dto.setDisplayName(emp.getFullName()) |
+|  | `User.name` | `MultiSourceMappingTest.java:20` | dto.setDisplayName(user.getName()) |
+| `mobile` | `Employee.departmentCode` | `MultiSourceMappingTest.java:29` | dto.setMobile(emp.getDepartmentCode()) |
+|  | `User.phone` | `MultiSourceMappingTest.java:21` | dto.setMobile(user.getPhone()) |
+| `orgCode` | `Employee.employeeNo` | `MultiSourceMappingTest.java:30` | dto.setOrgCode(emp.getEmployeeNo()) |
+|  | `User.tenantId` | `MultiSourceMappingTest.java:22` | dto.setOrgCode(user.getTenantId()) |
+
+### Product
+
+| 目标字段 | 源端字段 | 代码位置 | 代码块 |
+|---|---|---|---|
+| `productCode` | `OrderLine.productRef` | `testExplicitPutGet(implicit-map-join)` | productNameMap.get(orderLine.getProductRef()) |
 
 ### Staff
 
-| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
-|---|---|---|---|---|---|
-| `deptCode` | `Department.departmentId` | MAP_JOIN | READ | `testGroupingByBridge(implicit-map-join)` |
-| | *deptMap.get(department.getDepartmentId())* | | | |
+| 目标字段 | 源端字段 | 代码位置 | 代码块 |
+|---|---|---|---|
+| `deptCode` | `Department.departmentId` | `testGroupingByBridge(implicit-map-join)` | deptMap.get(department.getDepartmentId()) |
+
+### Supplier
+
+| 目标字段 | 源端字段 | 代码位置 | 代码块 |
+|---|---|---|---|
+| `supplierCode` | `PurchaseOrder.supplierRef` | `testDirectGetterBridge(implicit-map-join)` | supplierRegionMap.get(purchaseOrder.getSupplierRef()) |
+
+### User
+
+| 目标字段 | 源端字段 | 代码位置 | 代码块 |
+|---|---|---|---|
+| `areaCode` | `Address.zip` | `NormalizationTest.java:16` | address.getZip().toLowerCase().equals(user.getAreaCode()) |
 
 ### VipUser
 
-| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |
-|---|---|---|---|---|---|
-| `id` | `Order.userId` | PARAMETERIZED | WRITE | `testVipUserInheritedFields(direct-setter)` |
-| | *// VipUser 继承自 User，可以使用 id 字段 vipUser.setId(orderDTO.getOrder().getUserId())* | | | |
+| 目标字段 | 源端字段 | 代码位置 | 代码块 |
+|---|---|---|---|
+| `id` | `Order.userId` | `testVipUserInheritedFields(direct-setter)` | // VipUser 继承自 User，可以使用 id 字段 vipUser.setId(orderDTO.getOrder().getUserId()) |
 
 ## 推导关联（传递性闭包）
 
@@ -263,7 +266,7 @@ flowchart LR
 
 ### VipUser
 
-| 目标字段 | 源表字段集合 | 推导路径 |
-|---|---|---|
-| id | `User.id`, `User.phone` | *[User.id, User.phone] → [Order.userId, Order.phone] → VipUser.id* |
+| 目标字段 | 源端字段 | 代码位置 | 代码块 |
+|---|---|---|---|
+| `id` | `User.id`, `User.phone` | `transitive` | *[User.id, User.phone] → [Order.userId, Order.phone] → VipUser.id* |
 

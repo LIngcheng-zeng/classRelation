@@ -16,193 +16,127 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 public class Main {
 
     private static final Logger log = LoggerFactory.getLogger(Main.class);
 
-    public static void main(String[] args) {
-        // Load configuration from file
+    public static void main(String[] args) throws IOException {
         AppConfig config = AppConfig.getInstance();
-        
-        // Parse command-line arguments (override config if provided)
-        Path projectRoot = null;
-        List<String> targetPackages = new ArrayList<>(config.getPackageFilters());
-        boolean includeTransitive = !config.isStrictMode(); // Default from config
-        boolean packageFilterFromConfig = !targetPackages.isEmpty();
 
-        for (int i = 0; i < args.length; i++) {
-            if (args[i].equals("--package") || args[i].equals("-p")) {
-                if (i + 1 < args.length) {
-                    String pkg = args[++i];
-                    // If --package is specified on command line, replace config filters
-                    if (!packageFilterFromConfig) {
-                        targetPackages.clear();
-                    }
-                    targetPackages.add(pkg);
-                    packageFilterFromConfig = false; // Mark as overridden by CLI
-                } else {
-                    System.err.println("Error: --package requires a value");
-                    System.exit(1);
-                }
-            } else if (args[i].equals("--strict")) {
-                includeTransitive = false; // Only include relations where BOTH sides match
-            } else if (projectRoot == null) {
-                projectRoot = Paths.get(args[i]).toAbsolutePath().normalize();
-            } else {
-                System.err.println("Error: unexpected argument: " + args[i]);
-                System.exit(1);
-            }
-        }
-
-        // Use sample code path from config if no project root specified
-        if (projectRoot == null && !config.getSampleCodePath().isEmpty()) {
-            projectRoot = Paths.get(config.getSampleCodePath()).toAbsolutePath().normalize();
-            System.out.println("Using sample code path from config: " + projectRoot);
-        }
-
-        if (projectRoot == null) {
-            System.err.println("Usage: java -jar classRelation.jar [project-root-path] [--package <pkg>] [--strict]");
-            System.err.println("  project-root-path: Path to Java project (optional if sample.code.path configured)");
-            System.err.println("  --package, -p <pkg>: Filter to show only relations involving specified package(s)");
-            System.err.println("                     Supports: com.example, com.example.*, com.example.**");
-            System.err.println("  --strict: Only include relations where BOTH source and target are in target packages");
-            System.err.println("\nConfiguration can also be set in classrelation.properties file");
-            System.exit(1);
-        }
-
-        if (!projectRoot.toFile().isDirectory()) {
-            System.err.println("Error: path is not a directory: " + projectRoot);
-            System.exit(1);
-        }
-
+        Path projectRoot = resolveProjectRoot(config);
         String projectName = projectRoot.getFileName().toString();
-        log.info("Analyzing project: " + projectRoot);
-        if (!targetPackages.isEmpty()) {
-            log.info("Package filter: {} (mode: {})", 
-                    targetPackages, includeTransitive ? "transitive" : "strict");
+        Path outputDir = resolveOutputDir(config);
+
+        log.info("Analyzing project: {}", projectRoot);
+
+        List<ClassRelation> relations = analyze(projectRoot, config);
+
+        if (relations.isEmpty()) {
+            System.out.println("No field associations detected in: " + projectName);
+            return;
         }
 
-        try {
-            LineageAnalyzer analyzer = new LineageAnalyzer();
-            List<ClassRelation> allRelations = analyzer.analyze(projectRoot);
+        System.out.printf("Analysis complete: %d relation(s), %d mapping(s)%n",
+                relations.size(),
+                relations.stream().mapToLong(r -> r.mappings().size()).sum());
 
-            // Apply package filter if specified
-            List<ClassRelation> filteredRelations = allRelations;
-            if (!targetPackages.isEmpty()) {
-                PackageFilter filter = new PackageFilter(targetPackages);
-                
-                // Get class-package map from the analyzer's context
-                // We need to access it through a different approach since LineageAnalyzer doesn't expose it
-                // For now, we'll build it on-the-fly by scanning the project again
-                Map<String, String> classPackageMap = buildClassPackageMap(projectRoot);
-                
-                filteredRelations = allRelations.stream()
-                        .filter(rel -> {
-                            // Look up fully qualified names
-                            String sourceQualified = classPackageMap.getOrDefault(rel.sourceClass(), rel.sourceClass());
-                            String targetQualified = classPackageMap.getOrDefault(rel.targetClass(), rel.targetClass());
-                            
-                            return filter.shouldIncludeRelation(sourceQualified, targetQualified);
-                        })
-                        .toList();
-                
-                log.info("Filtered: {} -> {} relations", allRelations.size(), filteredRelations.size());
-            }
+        writeOutputs(projectName, relations, outputDir, config);
+    }
 
-            if (filteredRelations.isEmpty()) {
-                System.out.println("No field associations detected in: " + projectName);
-                return;
-            }
+    // -------------------------------------------------------------------------
 
-            String suffix = !targetPackages.isEmpty() ? "-filtered" : "";
+    private static Path resolveProjectRoot(AppConfig config) {
+        String path = config.getProjectPath();
+        if (path.isEmpty()) {
+            System.err.println("Error: project.path is not configured in classrelation.properties");
+            System.exit(1);
+        }
+        Path root = Paths.get(path).toAbsolutePath().normalize();
+        if (!root.toFile().isDirectory()) {
+            System.err.println("Error: project.path is not a directory: " + root);
+            System.exit(1);
+        }
+        return root;
+    }
 
-            String content = new MarkdownDocumentRenderer().render(projectName, filteredRelations);
-            Path outputFile = Paths.get(projectName + suffix + ".md");
-            Files.writeString(outputFile, content, StandardCharsets.UTF_8);
+    private static Path resolveOutputDir(AppConfig config) throws IOException {
+        Path dir = Paths.get(config.getOutputDir()).toAbsolutePath().normalize();
+        Files.createDirectories(dir);
+        return dir;
+    }
 
-            String htmlContent = new AntVG6HtmlRenderer().render(projectName, filteredRelations, 
-                    config.getMaxComponentsToRender());
-            Path htmlOutputFile = Paths.get(projectName + suffix + ".html");
-            Files.writeString(htmlOutputFile, htmlContent, StandardCharsets.UTF_8);
+    private static List<ClassRelation> analyze(Path projectRoot, AppConfig config) {
+        List<ClassRelation> relations = new LineageAnalyzer().analyze(projectRoot);
 
-            System.out.println("Report written to: " + outputFile.toAbsolutePath());
-            System.out.println("Graph HTML written to: " + htmlOutputFile.toAbsolutePath());
-            System.out.println("  " + filteredRelations.size() + " class relation(s), "
-                    + filteredRelations.stream().mapToLong(r -> r.mappings().size()).sum() + " mapping(s) found.");
+        if (config.hasPackageFilters()) {
+            PackageFilter filter = new PackageFilter(config.getPackageFilters());
+            relations = relations.stream()
+                    .filter(r -> filter.shouldIncludeRelation(r.sourceClass(), r.targetClass()))
+                    .toList();
+            log.info("Package filter applied: {} relation(s) retained", relations.size());
+        }
 
-            // Write to NebulaGraph
-            String spaceName = toNebulaSpaceName(projectName + suffix);
-            NebulaConfig nebulaConfig = NebulaConfig.defaultLocal(spaceName);
-            try (NebulaWriter writer = new NebulaWriter(nebulaConfig)) {
-                writer.write(filteredRelations);
-                System.out.println("NebulaGraph written to space: " + spaceName);
-            } catch (Exception e) {
-                log.warn("NebulaGraph write failed (non-fatal): {}", e.getMessage());
-                System.err.println("Warning: NebulaGraph write failed: " + e.getMessage());
-            }
+        return relations;
+    }
 
-        } catch (IOException e) {
-            System.err.println("Failed to write report: " + e.getMessage());
-            log.error("IO error", e);
-            System.exit(2);
-        } catch (Exception e) {
-            System.err.println("Analysis failed: " + e.getMessage());
-            log.error("Analysis failed", e);
-            System.exit(2);
+    private static void writeOutputs(String projectName, List<ClassRelation> relations,
+                                     Path outputDir, AppConfig config) {
+        if (config.isMarkdownEnabled()) {
+            writeMarkdown(projectName, relations, outputDir);
+        }
+        if (config.isHtmlEnabled()) {
+            writeHtml(projectName, relations, outputDir, config);
+        }
+        if (config.isNebulaEnabled()) {
+            writeNebula(projectName, relations);
         }
     }
-    
-    /**
-     * Converts a project name to a valid NebulaGraph space name.
-     * Rules: start with letter/underscore, only [a-zA-Z0-9_], max 256 chars.
-     * Example: "myProject-filtered" → "myProject_filtered"
-     */
+
+    private static void writeMarkdown(String projectName, List<ClassRelation> relations, Path outputDir) {
+        try {
+            String content = new MarkdownDocumentRenderer().render(projectName, relations);
+            Path output = outputDir.resolve(projectName + ".md");
+            Files.writeString(output, content, StandardCharsets.UTF_8);
+            System.out.println("Markdown written to: " + output);
+        } catch (IOException e) {
+            log.error("Failed to write Markdown", e);
+            System.err.println("Warning: failed to write Markdown: " + e.getMessage());
+        }
+    }
+
+    private static void writeHtml(String projectName, List<ClassRelation> relations,
+                                   Path outputDir, AppConfig config) {
+        try {
+            String content = new AntVG6HtmlRenderer().render(
+                    projectName, relations, config.getMaxComponentsToRender());
+            Path output = outputDir.resolve(projectName + ".html");
+            Files.writeString(output, content, StandardCharsets.UTF_8);
+            System.out.println("HTML written to: " + output);
+        } catch (IOException e) {
+            log.error("Failed to write HTML", e);
+            System.err.println("Warning: failed to write HTML: " + e.getMessage());
+        }
+    }
+
+    private static void writeNebula(String projectName, List<ClassRelation> relations) {
+        String spaceName = toNebulaSpaceName(projectName);
+        NebulaConfig nebulaConfig = NebulaConfig.defaultLocal(spaceName);
+        try (NebulaWriter writer = new NebulaWriter(nebulaConfig)) {
+            writer.write(relations);
+            System.out.println("NebulaGraph written to space: " + spaceName);
+        } catch (Exception e) {
+            log.warn("NebulaGraph write failed (non-fatal): {}", e.getMessage());
+            System.err.println("Warning: NebulaGraph write failed: " + e.getMessage());
+        }
+    }
+
     private static String toNebulaSpaceName(String name) {
         String sanitized = name.replaceAll("[^a-zA-Z0-9_]", "_");
         if (!sanitized.isEmpty() && Character.isDigit(sanitized.charAt(0))) {
             sanitized = "_" + sanitized;
         }
         return sanitized.length() > 256 ? sanitized.substring(0, 256) : sanitized;
-    }
-
-    /**
-     * Builds a map of simple class name to fully qualified name by scanning Java files.
-     */
-    private static Map<String, String> buildClassPackageMap(Path projectRoot) {
-        Map<String, String> classPackageMap = new java.util.HashMap<>();
-        
-        try {
-            java.nio.file.Files.walk(projectRoot)
-                    .filter(path -> path.toString().endsWith(".java"))
-                    .forEach(javaFile -> {
-                        try {
-                            com.github.javaparser.ParseResult<com.github.javaparser.ast.CompilationUnit> result = 
-                                new com.github.javaparser.JavaParser().parse(javaFile);
-                            if (result.isSuccessful() && result.getResult().isPresent()) {
-                                com.github.javaparser.ast.CompilationUnit cu = result.getResult().get();
-                                
-                                String packageName = cu.getPackageDeclaration()
-                                        .map(pkg -> pkg.getNameAsString())
-                                        .orElse("");
-                                
-                                cu.getTypes().forEach(type -> {
-                                    String className = type.getNameAsString();
-                                    String qualifiedName = packageName.isEmpty() ? className : packageName + "." + className;
-                                    classPackageMap.put(className, qualifiedName);
-                                });
-                            }
-                        } catch (Exception e) {
-                            // Ignore parse errors
-                        }
-                    });
-        } catch (Exception e) {
-            log.warn("Failed to build class-package map: {}", e.getMessage());
-        }
-        
-        return classPackageMap;
     }
 }

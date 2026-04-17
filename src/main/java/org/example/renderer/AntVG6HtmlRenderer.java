@@ -2,7 +2,9 @@ package org.example.renderer;
 
 import org.example.model.ClassRelation;
 import org.example.model.FieldMapping;
+import org.example.model.FieldRef;
 import org.example.model.MappingMode;
+import org.example.util.ClassNameValidator;
 
 import java.io.FileWriter;
 import java.io.IOException;
@@ -308,9 +310,11 @@ public class AntVG6HtmlRenderer {
             String tgt      = entry.getKey().substring(sep + 1);
             List<FieldMapping> mappings = entry.getValue();
 
-            String edgeType   = resolveEdgeType(mappings);
-            String shortLabel = buildShortLabel(mappings);
-            String tooltip    = buildTooltipHtml(src, tgt, mappings);
+            List<FieldMapping> sortedMappings = RelationDisplaySorter.sortMappings(mappings);
+            List<FieldMapping> dedupedMappings = deduplicateMappings(sortedMappings);
+            String edgeType   = resolveEdgeType(dedupedMappings);
+            String shortLabel = buildShortLabel(dedupedMappings);
+            String tooltip    = buildTooltipHtml(src, tgt, sortedMappings);
 
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("edgeType",    edgeType);
@@ -378,60 +382,118 @@ public class AntVG6HtmlRenderer {
         return label;
     }
 
-    /** Full HTML table for tooltip display (will be JSON-encoded). */
+    /**
+     * Builds tooltip/panel HTML.
+     * Columns: 目标字段 | 源端字段 | 代码位置 | 代码块
+     * Mappings must already be sorted via {@link RelationDisplaySorter#sortMappings}.
+     * Target field cells use HTML rowspan for true merged-cell display.
+     */
     private String buildTooltipHtml(String src, String tgt, List<FieldMapping> mappings) {
+        // Group by sink field display key, preserving the pre-sorted order
+        Map<String, List<FieldMapping>> bySink = new LinkedHashMap<>();
+        for (FieldMapping m : mappings) {
+            bySink.computeIfAbsent(formatSinkField(m), k -> new ArrayList<>()).add(m);
+        }
+
+        // Deduplicate each sink group by source side
+        Map<String, List<FieldMapping>> deduped = new LinkedHashMap<>();
+        for (Map.Entry<String, List<FieldMapping>> e : bySink.entrySet()) {
+            LinkedHashMap<String, FieldMapping> unique = new LinkedHashMap<>();
+            for (FieldMapping m : e.getValue()) {
+                unique.putIfAbsent(formatSourceDedup(m), m);
+            }
+            if (!unique.isEmpty()) deduped.put(e.getKey(), new ArrayList<>(unique.values()));
+        }
+
         StringBuilder sb = new StringBuilder();
-        sb.append("<div style='max-width:400px;font-size:12px;line-height:1.6'>");
+        sb.append("<div style='max-width:520px;font-size:12px;line-height:1.6'>");
         sb.append("<b style='font-size:13px'>")
-          .append(htmlEscape(src)).append(" -&gt; ").append(htmlEscape(tgt))
+          .append(htmlEscape(src)).append(" \u2192 ").append(htmlEscape(tgt))
           .append("</b>");
         sb.append("<hr style='margin:4px 0;border:none;border-top:1px solid #ddd'>");
         sb.append("<table style='border-collapse:collapse;width:100%'>");
         sb.append("<tr style='background:#f5f7fa'>")
-          .append("<th style='padding:3px 6px;text-align:left'>Source field</th>")
-          .append("<th style='padding:3px 6px;text-align:left'>Target field</th>")
-          .append("<th style='padding:3px 6px;text-align:left'>Type</th>")
-          .append("<th style='padding:3px 6px;text-align:left'>Mode</th>")
+          .append("<th style='padding:3px 6px;text-align:left;white-space:nowrap'>目标字段</th>")
+          .append("<th style='padding:3px 6px;text-align:left;white-space:nowrap'>源端字段</th>")
+          .append("<th style='padding:3px 6px;text-align:left;white-space:nowrap'>代码位置</th>")
+          .append("<th style='padding:3px 6px;text-align:left;white-space:nowrap'>代码块</th>")
           .append("</tr>");
 
-        for (int i = 0; i < mappings.size(); i++) {
-            FieldMapping m  = mappings.get(i);
-            String       bg = (i % 2 == 0) ? "#fff" : "#f9f9f9";
+        int rowIdx = 0;
+        for (Map.Entry<String, List<FieldMapping>> sinkEntry : deduped.entrySet()) {
+            String sinkDisplay = sinkEntry.getKey();
+            List<FieldMapping> rows = sinkEntry.getValue();
+            int rowspan = rows.size();
 
-            String srcField = m.leftSide().isEmpty() ? "?"
-                    : m.leftSide().fields().stream()
-                        .map(f -> {
-                            String cn     = f.className();
-                            String simple = cn.contains(".")
-                                    ? cn.substring(cn.lastIndexOf('.') + 1) : cn;
-                            return simple + "." + f.fieldName();
-                        })
-                        .reduce((a, b) -> a + ", " + b).orElse("?");
-            String tgtField = m.rightSide().isEmpty() ? "?"
-                    : m.rightSide().fields().stream()
-                        .map(f -> f.fieldName())
-                        .reduce((a, b) -> a + ", " + b).orElse("?");
-            String modeColor = m.mode() == MappingMode.WRITE_ASSIGNMENT ? "#f57c00" : "#1976d2";
-            String modeLabel = m.mode() == MappingMode.WRITE_ASSIGNMENT ? "WRITE" : "READ";
+            for (int i = 0; i < rows.size(); i++) {
+                FieldMapping m  = rows.get(i);
+                String       bg = (rowIdx++ % 2 == 0) ? "#fff" : "#f9f9f9";
+                String       srcField = formatSourceField(m);
+                String       loc      = m.location() != null ? m.location() : "";
+                String       code     = m.rawExpression() != null ? m.rawExpression() : "";
 
-            sb.append("<tr style='background:").append(bg).append("'>")
-              .append("<td style='padding:3px 6px;font-family:monospace'>")
-              .append(htmlEscape(srcField)).append("</td>")
-              .append("<td style='padding:3px 6px;font-family:monospace'>")
-              .append(htmlEscape(tgtField)).append("</td>")
-              .append("<td style='padding:3px 6px'>").append(m.type().name()).append("</td>")
-              .append("<td style='padding:3px 6px;color:").append(modeColor).append("'>")
-              .append(modeLabel).append("</td>")
-              .append("</tr>");
-
-            if (m.location() != null && !m.location().isEmpty()) {
-                sb.append("<tr style='background:").append(bg).append("'>")
-                  .append("<td colspan='4' style='padding:1px 6px;color:#999;font-size:11px'>")
-                  .append(htmlEscape(m.location())).append("</td></tr>");
+                sb.append("<tr style='background:").append(bg).append("'>");
+                if (i == 0) {
+                    sb.append("<td rowspan='").append(rowspan)
+                      .append("' style='padding:3px 6px;font-family:monospace;")
+                      .append("vertical-align:middle;border-right:1px solid #eee;font-weight:600'>")
+                      .append(htmlEscape(sinkDisplay)).append("</td>");
+                }
+                sb.append("<td style='padding:3px 6px;font-family:monospace'>")
+                  .append(htmlEscape(srcField)).append("</td>")
+                  .append("<td style='padding:3px 6px;color:#666;font-size:11px;white-space:nowrap'>")
+                  .append(htmlEscape(loc)).append("</td>")
+                  .append("<td style='padding:3px 6px;font-family:monospace;color:#555;max-width:50ch;")
+                  .append("word-break:break-all;white-space:normal'>")
+                  .append(htmlEscape(code)).append("</td>")
+                  .append("</tr>");
             }
         }
         sb.append("</table></div>");
         return sb.toString();
+    }
+
+    /**
+     * Deduplicates mappings by (sinkField, sourceField) — mirrors the dedup logic
+     * in {@link #buildTooltipHtml} so that counts are consistent with what is displayed.
+     */
+    private List<FieldMapping> deduplicateMappings(List<FieldMapping> mappings) {
+        Map<String, List<FieldMapping>> bySink = new LinkedHashMap<>();
+        for (FieldMapping m : mappings) {
+            bySink.computeIfAbsent(formatSinkField(m), k -> new ArrayList<>()).add(m);
+        }
+        List<FieldMapping> result = new ArrayList<>();
+        for (List<FieldMapping> group : bySink.values()) {
+            LinkedHashMap<String, FieldMapping> unique = new LinkedHashMap<>();
+            for (FieldMapping m : group) {
+                unique.putIfAbsent(formatSourceDedup(m), m);
+            }
+            result.addAll(unique.values());
+        }
+        return result;
+    }
+
+    private String formatSinkField(FieldMapping m) {
+        if (m.rightSide() == null || m.rightSide().isEmpty()) return "?";
+        return m.rightSide().fields().stream()
+                .map(FieldRef::fieldName)
+                .sorted()
+                .reduce((a, b) -> a + ", " + b).orElse("?");
+    }
+
+    private String formatSourceField(FieldMapping m) {
+        if (m.leftSide() == null || m.leftSide().isEmpty()) return "?";
+        return m.leftSide().fields().stream()
+                .map(f -> ClassNameValidator.extractSimpleName(f.className()) + "." + f.fieldName())
+                .reduce((a, b) -> a + ", " + b).orElse("?");
+    }
+
+    private String formatSourceDedup(FieldMapping m) {
+        if (m.leftSide() == null || m.leftSide().isEmpty()) return "?";
+        return m.leftSide().fields().stream()
+                .map(f -> ClassNameValidator.extractSimpleName(f.className()) + "." + f.fieldName())
+                .sorted()
+                .reduce((a, b) -> a + "," + b).orElse("?");
     }
 
     // -------------------------------------------------------------------------
@@ -508,7 +570,8 @@ public class AntVG6HtmlRenderer {
 
     /* ── Sidebar ── */
     #sidebar {
-      position:fixed; top:52px; right:-360px; width:340px;
+      position:fixed; top:52px; right:-100vw;
+      width:fit-content; min-width:340px; max-width:80vw;
       height:calc(100vh - 52px); background:#161b22;
       border-left:1px solid #30363d; z-index:150;
       transition:right 0.22s ease; display:flex; flex-direction:column;

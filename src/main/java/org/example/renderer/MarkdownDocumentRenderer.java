@@ -8,12 +8,9 @@ import org.example.util.ClassNameValidator;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
-import java.util.TreeMap;
 
 /**
  * Renders lineage analysis results as a single Markdown document.
@@ -106,9 +103,10 @@ public class MarkdownDocumentRenderer {
     }
 
     private void renderGroupedTable(StringBuilder sb, List<ClassRelation> rels, boolean derived) {
-        // Aggregate by target class, preserving source class info for self-relation filtering
+        // Sort by target class simple name (level-1), then aggregate
+        List<ClassRelation> sorted = RelationDisplaySorter.sortByTargetClass(rels);
         Map<String, List<ClassRelation>> byTarget = new LinkedHashMap<>();
-        for (ClassRelation rel : rels) {
+        for (ClassRelation rel : sorted) {
             byTarget.computeIfAbsent(rel.targetClass(), k -> new ArrayList<>()).add(rel);
         }
 
@@ -128,65 +126,57 @@ public class MarkdownDocumentRenderer {
             sb.append("### ").append(displayName).append("\n\n");
 
             if (derived) {
-                sb.append("| 目标字段 | 源表字段集合 | 推导路径 |\n");
-                sb.append("|---|---|---|\n");
-                for (FieldMapping m : fieldMappings) {
-                    sb.append("| ").append(formatSinkField(m.rightSide()))
-                      .append(" | ").append(formatSide(m.leftSide()))
-                      .append(" | *").append(escape(m.rawExpression())).append("* |\n");
-                }
+                sb.append("| 目标字段 | 源端字段 | 代码位置 | 代码块 |\n");
+                sb.append("|---|---|---|---|\n");
+                renderDedupedRows(sb, fieldMappings, true);
             } else {
-                sb.append("| 目标字段 | 源表字段集合 | 映射类型 | 模式 | 代码位置 | 归一化操作 |\n");
-                sb.append("|---|---|---|---|---|---|\n");
-                renderDedupedRows(sb, fieldMappings);
+                sb.append("| 目标字段 | 源端字段 | 代码位置 | 代码块 |\n");
+                sb.append("|---|---|---|---|\n");
+                renderDedupedRows(sb, fieldMappings, false);
             }
             sb.append("\n");
         }
     }
 
     /**
-     * Renders mappings grouped by sink field (alphabetical), deduplicating
-     * (sinkField, sourceField) pairs that appear from multiple code paths.
-     * Continuation rows (same sink field, additional source) leave the sink cell blank.
+     * Applies 4-level sort via {@link RelationDisplaySorter}, groups by sink field,
+     * deduplicates (sinkField, sourceField) pairs, and renders rows with the
+     * blank-continuation pattern for merged-cell simulation.
+     *
+     * Columns: 目标字段 | 源端字段 | 代码位置 | 代码块
      */
-    private void renderDedupedRows(StringBuilder sb, List<FieldMapping> mappings) {
-        // Sort by sink field name alphabetically
-        Map<String, List<FieldMapping>> bySink = new TreeMap<>();
-        for (FieldMapping m : mappings) {
+    private void renderDedupedRows(StringBuilder sb, List<FieldMapping> mappings, boolean derived) {
+        List<FieldMapping> sorted = RelationDisplaySorter.sortMappings(mappings);
+
+        // LinkedHashMap preserves the sort order produced above
+        Map<String, List<FieldMapping>> bySink = new LinkedHashMap<>();
+        for (FieldMapping m : sorted) {
             bySink.computeIfAbsent(formatSinkField(m.rightSide()), k -> new ArrayList<>()).add(m);
         }
 
         for (Map.Entry<String, List<FieldMapping>> sinkEntry : bySink.entrySet()) {
             String sinkDisplay = sinkEntry.getKey();
-            
-            // Deduplicate by source side (className.fieldName), keeping first occurrence
+
             Map<String, FieldMapping> uniqueSources = new LinkedHashMap<>();
             for (FieldMapping m : sinkEntry.getValue()) {
-                String sourceDedupKey = dedupKey(m.leftSide());
-                uniqueSources.putIfAbsent(sourceDedupKey, m);  // Keep first occurrence
+                uniqueSources.putIfAbsent(dedupKey(m.leftSide()), m);
             }
-            
             if (uniqueSources.isEmpty()) continue;
-            
+
             boolean firstRow = true;
             for (FieldMapping m : uniqueSources.values()) {
-                String sourceDisplay = formatSide(m.leftSide());
-
-                String sinkCell = firstRow ? "`" + sinkDisplay + "`" : "";
-                String type = m.type().name();
-                String mode = m.mode() == MappingMode.WRITE_ASSIGNMENT ? "WRITE" : "READ";
-                String loc  = m.location();
-                String norm = m.normalization() != null && !m.normalization().isEmpty()
-                        ? String.join(", ", m.normalization()) : "";
+                String sinkCell   = firstRow ? "`" + sinkDisplay + "`" : "";
+                String sourceCell = formatSide(m.leftSide());
+                String locCell    = "`" + m.location() + "`";
+                String codeCell   = derived
+                        ? "*" + escape(m.rawExpression()) + "*"
+                        : escape(m.rawExpression());
 
                 sb.append("| ").append(sinkCell)
-                  .append(" | ").append(sourceDisplay)
-                  .append(" | ").append(type)
-                  .append(" | ").append(mode)
-                  .append(" | `").append(loc).append("` |")
-                  .append(norm.isEmpty() ? "" : " `" + norm + "` |")
-                  .append("\n");
-                sb.append("| | *").append(escape(m.rawExpression())).append("* | | | |\n");
+                  .append(" | ").append(sourceCell)
+                  .append(" | ").append(locCell)
+                  .append(" | ").append(codeCell)
+                  .append(" |\n");
                 firstRow = false;
             }
         }

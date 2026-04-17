@@ -3,38 +3,38 @@ package org.example.renderer;
 import org.example.model.ClassRelation;
 import org.example.model.FieldMapping;
 import org.example.model.FieldRef;
-import org.example.model.MappingMode;
 import org.example.util.ClassNameValidator;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
 
 /**
  * Renders lineage relations as a plain-text table.
  *
  * Layout:
- *   - One section per target class, headed by "=== ClassName ==="
- *   - Rows sorted by target field name (alphabetical)
+ *   - Sections sorted by target class simple name (alphabetical)
+ *   - Rows sorted: target field → source class → source field
  *   - Same target field with multiple sources: first source occupies the
- *     目标字段 cell; continuation sources leave it blank (rowspan simulation)
+ *     目标字段 cell; continuation rows leave it blank (rowspan simulation)
  *
  * Columns:
- *   目标字段 | 源字段 | 映射类型 | 模式 | 代码位置 | 归一化操作
+ *   目标字段 | 源端字段 | 代码位置 | 代码块
  */
 public class TableRenderer {
 
     private static final String[] HEADERS =
-            { "目标字段", "源字段", "映射类型", "模式", "代码位置", "归一化操作" };
+            { "目标字段", "源端字段", "代码位置", "代码块" };
 
     public String render(List<ClassRelation> relations) {
         if (relations.isEmpty()) return "No class relations found.";
 
-        // Aggregate all mappings by target class, preserving encounter order
+        // Sort by target class simple name (level-1), then aggregate
+        List<ClassRelation> sorted = RelationDisplaySorter.sortByTargetClass(relations);
         Map<String, List<FieldMapping>> byTarget = new LinkedHashMap<>();
-        for (ClassRelation rel : relations) {
+        for (ClassRelation rel : sorted) {
             byTarget.computeIfAbsent(rel.targetClass(), k -> new ArrayList<>())
                     .addAll(rel.mappings());
         }
@@ -46,7 +46,7 @@ public class TableRenderer {
             List<FieldMapping> fieldMappings = entry.getValue().stream()
                     .filter(m -> !isComposition(m))
                     .toList();
-            if (fieldMappings.isEmpty()) continue;   // section has only composition relations
+            if (fieldMappings.isEmpty()) continue;
 
             if (!first) sb.append("\n");
             first = false;
@@ -64,36 +64,32 @@ public class TableRenderer {
     // -------------------------------------------------------------------------
 
     /**
-     * Groups mappings by sink field (sorted alphabetically), then flattens into
-     * display rows using the continuation-blank pattern for multi-source fields.
-     *
-     * Deduplication: (sinkField, sourceField) pairs seen more than once — e.g. the
-     * same mapping detected via multiple code paths — are collapsed to a single row.
+     * Applies the 4-level sort via {@link RelationDisplaySorter}, groups by sink field,
+     * deduplicates (sinkField, sourceField) pairs, and produces display rows with the
+     * blank-continuation pattern for merged-cell simulation.
      */
     private List<String[]> buildRows(List<FieldMapping> mappings) {
-        // TreeMap: alphabetical sort by sink field display string
-        Map<String, List<FieldMapping>> bySinkField = new TreeMap<>();
-        for (FieldMapping m : mappings) {
-            String key = formatSinkKey(m.rightSide().fields());
-            bySinkField.computeIfAbsent(key, k -> new ArrayList<>()).add(m);
+        List<FieldMapping> sorted = RelationDisplaySorter.sortMappings(mappings);
+
+        // LinkedHashMap preserves the sort order produced above
+        Map<String, List<FieldMapping>> bySinkField = new LinkedHashMap<>();
+        for (FieldMapping m : sorted) {
+            bySinkField.computeIfAbsent(formatSinkKey(m.rightSide().fields()), k -> new ArrayList<>()).add(m);
         }
 
         List<String[]> rows = new ArrayList<>();
         for (Map.Entry<String, List<FieldMapping>> fieldEntry : bySinkField.entrySet()) {
             String sinkDisplay = fieldEntry.getKey();
-            boolean firstRow   = true;
-            java.util.Set<String> seenSources = new java.util.LinkedHashSet<>();
+            boolean firstRow = true;
+            LinkedHashSet<String> seenSources = new LinkedHashSet<>();
             for (FieldMapping m : fieldEntry.getValue()) {
-                String sourceKey    = formatSourceSide(m.leftSide().fields());
-                String sourceDedupKey = buildSourceDedupKey(m.leftSide().fields());
-                if (!seenSources.add(sourceDedupKey)) continue;   // duplicate (sink, source) pair
+                String dedupKey = buildSourceDedupKey(m.leftSide().fields());
+                if (!seenSources.add(dedupKey)) continue;
                 rows.add(new String[]{
                         firstRow ? sinkDisplay : "",
-                        sourceKey,
-                        m.type().name(),
-                        m.mode() == MappingMode.WRITE_ASSIGNMENT ? "WRITE" : "READ",
+                        formatSourceSide(m.leftSide().fields()),
                         m.location(),
-                        normalization(m)
+                        m.rawExpression() != null ? m.rawExpression() : ""
                 });
                 firstRow = false;
             }
@@ -140,12 +136,6 @@ public class TableRenderer {
         return String.join(", ", fields.stream()
                 .map(f -> ClassNameValidator.extractSimpleName(f.className()) + "." + f.fieldName())
                 .toList());
-    }
-
-    private String normalization(FieldMapping m) {
-        return (m.normalization() != null && !m.normalization().isEmpty())
-                ? String.join(", ", m.normalization())
-                : "";
     }
 
     // -------------------------------------------------------------------------

@@ -2,6 +2,7 @@ package org.example.analyzer;
 
 import org.example.analyzer.javaparser.JavaParserAnalyzer;
 import org.example.analyzer.spoon.SpoonAnalyzer;
+import org.example.config.AppConfig;
 import org.example.expander.TransitiveClosureExpander;
 import org.example.graph.LineageGraph;
 import org.example.model.ClassRelation;
@@ -10,6 +11,8 @@ import org.example.resolution.FieldRefQualifier;
 import org.example.resolution.SymbolResolutionResult;
 import org.example.resolution.SymbolResolver;
 import org.example.spi.SourceAnalyzer;
+import org.example.util.ClassNameValidator;
+import org.example.util.PackageFilter;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,6 +20,7 @@ import org.slf4j.LoggerFactory;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.stream.Collectors;
@@ -97,10 +101,17 @@ public class LineageAnalyzer {
                 .collect(Collectors.toList());
         log.info("[PERF] Phase 2.5 (UserFilter): {}ms  {} -> {}", System.currentTimeMillis() - t25, qualified.size(), userOnly.size());
 
+        // Phase 2.6: Excluded-package filter — drop any mapping where either side
+        // contains a field whose declaring class (by simple name) belongs to an excluded package.
+        long t26 = System.currentTimeMillis();
+        List<FieldMapping> afterExclusion = applyExcludedPackageFilter(userOnly, symbols.classPackageIndex());
+        log.info("[PERF] Phase 2.6 (ExcludedPackageFilter): {}ms  {} -> {}",
+                System.currentTimeMillis() - t26, userOnly.size(), afterExclusion.size());
+
         // Phase 3: Aggregation
         long t3 = System.currentTimeMillis();
         LineageGraph graph = new LineageGraph();
-        userOnly.forEach(graph::addMapping);
+        afterExclusion.forEach(graph::addMapping);
         graph.setInheritanceMap(symbols.inheritanceIndex());
         log.info("[PERF] Phase 3 (Aggregation): {}ms", System.currentTimeMillis() - t3);
 
@@ -130,5 +141,48 @@ public class LineageAnalyzer {
         boolean sinkHasUser = m.rightSide().fields().stream()
                 .anyMatch(f -> userClassFqns.contains(f.className()));
         return sourceHasUser && sinkHasUser;
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 2.6 helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Builds the set of simple class names whose FQN belongs to any excluded package,
+     * then drops any mapping where either side references one of those classes.
+     */
+    private static List<FieldMapping> applyExcludedPackageFilter(
+            List<FieldMapping> mappings, Map<String, String> classPackageIndex) {
+
+        AppConfig config = AppConfig.getInstance();
+        if (!config.hasExcludedPackages()) {
+            return mappings;
+        }
+
+        PackageFilter excludeFilter = new PackageFilter(config.getExcludedPackages());
+        Set<String> excludedSimpleNames = classPackageIndex.entrySet().stream()
+                .filter(e -> excludeFilter.matchesClass(e.getValue()))
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toSet());
+
+        if (excludedSimpleNames.isEmpty()) {
+            return mappings;
+        }
+
+        log.debug("[ExcludedPackageFilter] excluded simple names: {}", excludedSimpleNames);
+        return mappings.stream()
+                .filter(m -> !anyFieldInExcludedSet(m, excludedSimpleNames))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Returns true if either side of the mapping has a field whose declaring class
+     * simple name appears in the excluded set.
+     */
+    private static boolean anyFieldInExcludedSet(FieldMapping m, Set<String> excludedSimpleNames) {
+        return m.leftSide().fields().stream()
+                .anyMatch(f -> excludedSimpleNames.contains(ClassNameValidator.extractSimpleName(f.className())))
+               || m.rightSide().fields().stream()
+                .anyMatch(f -> excludedSimpleNames.contains(ClassNameValidator.extractSimpleName(f.className())));
     }
 }
